@@ -1,0 +1,29 @@
+# Entorno virtual
+venv/
+.venv/
+
+# Variables de entorno con credenciales
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+
+# Base de datos SQLite (si se usa en desarrollo)
+db.sqlite3
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
