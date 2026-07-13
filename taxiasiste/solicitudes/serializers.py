@@ -27,8 +27,8 @@ class PasajeroSerializer(serializers.ModelSerializer):
 
 class SolicitudListSerializer(serializers.ModelSerializer):
     """Serializer liviano para listados — evita queries pesadas."""
-    pasajero_nombre = serializers.CharField(source='pasajero.__str__', read_only=True)
-    movil_patente = serializers.CharField(source='movil.patente', read_only=True)
+    pasajero_nombre = serializers.SerializerMethodField()
+    movil_patente = serializers.SerializerMethodField()
 
     class Meta:
         model = Solicitud
@@ -43,13 +43,19 @@ class SolicitudListSerializer(serializers.ModelSerializer):
             'destino',
             'fecha_hora',
         ]
+
+    def get_pasajero_nombre(self, obj):
+        return str(obj.pasajero) if obj.pasajero else None
+
+    def get_movil_patente(self, obj):
+        return obj.movil.patente if obj.movil else None
         read_only_fields = ['id_solicitud']
 
 
 class SolicitudSerializer(serializers.ModelSerializer):
     """Serializer completo para crear, editar y ver detalle."""
-    pasajero_nombre = serializers.CharField(source='pasajero.__str__', read_only=True)
-    movil_patente = serializers.CharField(source='movil.patente', read_only=True)
+    pasajero_nombre = serializers.SerializerMethodField()
+    movil_patente = serializers.SerializerMethodField()
 
     class Meta:
         model = Solicitud
@@ -72,3 +78,9 @@ class SolicitudSerializer(serializers.ModelSerializer):
             'fecha_termino',
         ]
         read_only_fields = ['id_solicitud', 'folio', 'fecha_hora']
+
+    def get_pasajero_nombre(self, obj):
+        return str(obj.pasajero) if obj.pasajero else None
+
+    def get_movil_patente(self, obj):
+        return obj.movil.patente if obj.movil else None
