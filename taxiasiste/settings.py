@@ -65,7 +65,7 @@ WSGI_APPLICATION = 'taxiasiste.wsgi.application'
 
 _oracle_service = config('ORACLE_SERVICE_NAME', default='')
 _oracle_host = config('ORACLE_HOST', default='localhost')
-_oracle_port = config('ORACLE_PORT', default='1521')
+_oracle_port = config('ORACLE_PORT')
 
 if _oracle_service:
     _oracle_name = f'{_oracle_host}:{_oracle_port}/{_oracle_service}'
