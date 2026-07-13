@@ -35,15 +35,13 @@ class SolicitudListSerializer(serializers.ModelSerializer):
         fields = [
             'id_solicitud',
             'folio',
-            'tipo_solicitud',
             'estado',
             'canal_entrada',
             'pasajero_nombre',
             'movil_patente',
             'origen',
             'destino',
-            'fecha_hora_registro',
-            'fecha_programada',
+            'fecha_hora',
         ]
         read_only_fields = ['id_solicitud']
 
@@ -58,7 +56,6 @@ class SolicitudSerializer(serializers.ModelSerializer):
         fields = [
             'id_solicitud',
             'folio',
-            'tipo_solicitud',
             'pasajero',
             'pasajero_nombre',
             'movil',
@@ -66,15 +63,12 @@ class SolicitudSerializer(serializers.ModelSerializer):
             'usuario_central',
             'origen',
             'destino',
-            'fecha_hora_registro',
-            'fecha_programada',
+            'fecha_hora',
             'estado',
             'canal_entrada',
-            'intentos_asignacion',
             'observaciones',
             'fecha_asignacion',
             'fecha_inicio',
             'fecha_termino',
-            'motivo_cancelacion',
         ]
-        read_only_fields = ['id_solicitud', 'intentos_asignacion']
+        read_only_fields = ['id_solicitud', 'folio', 'fecha_hora']
