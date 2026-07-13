@@ -1,6 +1,7 @@
 from django.contrib.auth.hashers import check_password
 from django.utils import timezone
-from rest_framework import status
+from drf_spectacular.utils import OpenApiExample, extend_schema
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -9,10 +10,25 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from taxiasiste.usuarios.models import Usuario
 
 
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField()
+
+
 class LoginView(APIView):
     """Login contra la tabla USUARIOS de Oracle. Devuelve access + refresh JWT."""
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=LoginSerializer,
+        examples=[
+            OpenApiExample(
+                'Ejemplo',
+                value={'username': 'admin', 'password': 'Admin2026!'},
+                request_only=True,
+            )
+        ],
+    )
     def post(self, request):
         username = request.data.get('username', '').strip()
         password = request.data.get('password', '')

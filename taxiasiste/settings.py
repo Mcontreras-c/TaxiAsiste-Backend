@@ -130,6 +130,17 @@ SIMPLE_JWT = {
 SPECTACULAR_SETTINGS = {
     'TITLE': 'TaxiAsiste API',
     'VERSION': '1.0.0',
+    'SCHEMA_PATH_PREFIX': '/api/',
+    'SECURITY': [{'jwtAuth': []}],
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'jwtAuth': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+            }
+        }
+    },
 }
 
 CORS_ALLOWED_ORIGINS = [
