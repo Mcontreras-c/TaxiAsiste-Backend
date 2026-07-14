@@ -12,13 +12,11 @@ from .serializers import (
 )
 
 TRANSICIONES_VALIDAS = {
-    'PENDIENTE':   ['ASIGNADO', 'CANCELADO'],
-    'ASIGNADO':    ['ACEPTADO', 'REASIGNANDO', 'CANCELADO'],
-    'ACEPTADO':    ['EN_CURSO', 'CANCELADO'],
-    'REASIGNANDO': ['ASIGNADO', 'CANCELADO'],
-    'EN_CURSO':    ['COMPLETADO', 'CANCELADO'],
-    'COMPLETADO':  [],
-    'CANCELADO':   [],
+    'PENDIENTE':  ['ASIGNADO', 'CANCELADO'],
+    'ASIGNADO':   ['EN_CURSO', 'CANCELADO'],
+    'EN_CURSO':   ['COMPLETADO', 'CANCELADO'],
+    'COMPLETADO': [],
+    'CANCELADO':  [],
 }
 
 
@@ -42,7 +40,7 @@ class PasajeroViewSet(ModelViewSet):
 class SolicitudViewSet(ModelViewSet):
     queryset = Solicitud.objects.select_related(
         'pasajero', 'movil', 'usuario_central'
-    ).order_by('-fecha_hora_registro')
+    ).order_by('-fecha_hora')
     serializer_class = SolicitudSerializer
 
     def get_serializer_class(self):
@@ -58,10 +56,8 @@ class SolicitudViewSet(ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def en_curso(self, request):
-        """Lista solicitudes activas (ASIGNADO, ACEPTADO, REASIGNANDO, EN_CURSO)."""
-        qs = self.queryset.filter(
-            estado__in=['ASIGNADO', 'ACEPTADO', 'REASIGNANDO', 'EN_CURSO']
-        )
+        """Lista solicitudes activas (ASIGNADO o EN_CURSO)."""
+        qs = self.queryset.filter(estado__in=['ASIGNADO', 'EN_CURSO'])
         return Response(SolicitudListSerializer(qs, many=True).data)
 
     @action(detail=True, methods=['post'])
@@ -69,7 +65,6 @@ class SolicitudViewSet(ModelViewSet):
         """Transición de estado validada según el flujo del negocio."""
         solicitud = self.get_object()
         nuevo_estado = request.data.get('estado', '').upper()
-        motivo = request.data.get('motivo_cancelacion', '')
         movil_id = request.data.get('movil')
 
         estados_posibles = TRANSICIONES_VALIDAS.get(solicitud.estado, [])
@@ -98,23 +93,13 @@ class SolicitudViewSet(ModelViewSet):
             solicitud.fecha_asignacion = ahora
             update_fields += ['movil_id', 'fecha_asignacion']
 
-        if nuevo_estado == 'REASIGNANDO':
-            solicitud.intentos_asignacion += 1
-            solicitud.movil_id = None
-            update_fields += ['intentos_asignacion', 'movil_id']
-
         if nuevo_estado == 'EN_CURSO':
             solicitud.fecha_inicio = ahora
             update_fields.append('fecha_inicio')
 
-        if nuevo_estado == 'COMPLETADO':
+        if nuevo_estado in ('COMPLETADO', 'CANCELADO'):
             solicitud.fecha_termino = ahora
             update_fields.append('fecha_termino')
-
-        if nuevo_estado == 'CANCELADO':
-            solicitud.motivo_cancelacion = motivo
-            solicitud.fecha_termino = ahora
-            update_fields += ['motivo_cancelacion', 'fecha_termino']
 
         solicitud.save(update_fields=update_fields)
         return Response(SolicitudSerializer(solicitud).data)

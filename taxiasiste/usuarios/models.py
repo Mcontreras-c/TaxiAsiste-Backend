@@ -62,5 +62,13 @@ class Usuario(models.Model):
             self.id_usuario = nextval('seq_usuarios')
         super().save(*args, **kwargs)
 
+    @property
+    def is_authenticated(self):
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
+
     def __str__(self):
         return f'{self.username} ({self.estado})'
