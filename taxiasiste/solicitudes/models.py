@@ -67,40 +67,25 @@ class Solicitud(models.Model):
         max_length=20,
         db_comment='Código legible — ej: SOL-2026-00001',
     )
-    tipo_solicitud = models.CharField(
-        max_length=20,
-        default='INMEDIATA',
-        db_comment='INMEDIATA | AGENDADA',
-    )
     origen = models.CharField(max_length=200)
     destino = models.CharField(max_length=200)
-    fecha_hora_registro = models.DateTimeField(
+    fecha_hora = models.DateTimeField(
         db_comment='Momento en que la central registra la solicitud',
-    )
-    fecha_programada = models.DateTimeField(
-        blank=True,
-        null=True,
-        db_comment='Solo para tipo AGENDADA',
     )
     estado = models.CharField(
         max_length=20,
         default='PENDIENTE',
-        db_comment='PENDIENTE | ASIGNADO | ACEPTADO | REASIGNANDO | EN_CURSO | COMPLETADO | CANCELADO',
+        db_comment='PENDIENTE | ASIGNADO | EN_CURSO | COMPLETADO | CANCELADO',
     )
     canal_entrada = models.CharField(
         max_length=20,
         default='TELEFONO',
         db_comment='TELEFONO | APP | PRESENCIAL',
     )
-    intentos_asignacion = models.IntegerField(
-        default=0,
-        db_comment='Contador de reasignaciones',
-    )
     observaciones = models.CharField(max_length=500, blank=True, null=True)
     fecha_asignacion = models.DateTimeField(blank=True, null=True)
     fecha_inicio = models.DateTimeField(blank=True, null=True)
     fecha_termino = models.DateTimeField(blank=True, null=True)
-    motivo_cancelacion = models.CharField(max_length=300, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -113,9 +98,9 @@ class Solicitud(models.Model):
         if not self.folio:
             anio = timezone.now().year
             self.folio = f'SOL-{anio}-{int(self.id_solicitud):05d}'
-        if not self.fecha_hora_registro:
-            self.fecha_hora_registro = timezone.now()
+        if not self.fecha_hora:
+            self.fecha_hora = timezone.now()
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'{self.folio} — {self.tipo_solicitud} ({self.estado})'
+        return f'{self.folio} ({self.estado})'

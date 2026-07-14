@@ -27,38 +27,41 @@ class PasajeroSerializer(serializers.ModelSerializer):
 
 class SolicitudListSerializer(serializers.ModelSerializer):
     """Serializer liviano para listados — evita queries pesadas."""
-    pasajero_nombre = serializers.CharField(source='pasajero.__str__', read_only=True)
-    movil_patente = serializers.CharField(source='movil.patente', read_only=True)
+    pasajero_nombre = serializers.SerializerMethodField()
+    movil_patente = serializers.SerializerMethodField()
 
     class Meta:
         model = Solicitud
         fields = [
             'id_solicitud',
             'folio',
-            'tipo_solicitud',
             'estado',
             'canal_entrada',
             'pasajero_nombre',
             'movil_patente',
             'origen',
             'destino',
-            'fecha_hora_registro',
-            'fecha_programada',
+            'fecha_hora',
         ]
+
+    def get_pasajero_nombre(self, obj):
+        return str(obj.pasajero) if obj.pasajero else None
+
+    def get_movil_patente(self, obj):
+        return obj.movil.patente if obj.movil else None
         read_only_fields = ['id_solicitud']
 
 
 class SolicitudSerializer(serializers.ModelSerializer):
     """Serializer completo para crear, editar y ver detalle."""
-    pasajero_nombre = serializers.CharField(source='pasajero.__str__', read_only=True)
-    movil_patente = serializers.CharField(source='movil.patente', read_only=True)
+    pasajero_nombre = serializers.SerializerMethodField()
+    movil_patente = serializers.SerializerMethodField()
 
     class Meta:
         model = Solicitud
         fields = [
             'id_solicitud',
             'folio',
-            'tipo_solicitud',
             'pasajero',
             'pasajero_nombre',
             'movil',
@@ -66,15 +69,18 @@ class SolicitudSerializer(serializers.ModelSerializer):
             'usuario_central',
             'origen',
             'destino',
-            'fecha_hora_registro',
-            'fecha_programada',
+            'fecha_hora',
             'estado',
             'canal_entrada',
-            'intentos_asignacion',
             'observaciones',
             'fecha_asignacion',
             'fecha_inicio',
             'fecha_termino',
-            'motivo_cancelacion',
         ]
-        read_only_fields = ['id_solicitud', 'intentos_asignacion']
+        read_only_fields = ['id_solicitud', 'folio', 'fecha_hora']
+
+    def get_pasajero_nombre(self, obj):
+        return str(obj.pasajero) if obj.pasajero else None
+
+    def get_movil_patente(self, obj):
+        return obj.movil.patente if obj.movil else None
