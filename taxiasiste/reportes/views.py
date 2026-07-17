@@ -101,6 +101,104 @@ def socios_bloqueados(request):
 
 
 @api_view(['GET'])
+def resumen_tesorero(request):
+    """
+    Resumen financiero por período para el Tesorero.
+    ?periodo=YYYY-MM  (default: mes actual)
+    Devuelve esperado, cobrado, pendientes y detalle por socio.
+    """
+    from django.db.models import Sum, Q
+    from taxiasiste.moviles.models import Movil
+
+    periodo = request.query_params.get('periodo') or timezone.now().strftime('%Y-%m')
+    anio, mes = periodo.split('-')
+
+    cuotas = (
+        Cuota.objects
+        .filter(periodo__year=anio, periodo__month=mes)
+        .select_related('socio')
+        .order_by('socio__nombre')
+    )
+
+    esperado   = cuotas.aggregate(t=Sum('monto'))['t'] or 0
+    cobrado    = cuotas.filter(estado_pago='PAGADO').aggregate(t=Sum('monto'))['t'] or 0
+    pendiente  = cuotas.filter(estado_pago__in=['PENDIENTE', 'VENCIDO']).aggregate(t=Sum('monto'))['t'] or 0
+
+    detalle = [
+        {
+            'id_cuota':       c.id_cuota,
+            'id_socio':       c.socio.id_socio,
+            'rut':            c.socio.rut,
+            'socio':          str(c.socio),
+            'monto':          float(c.monto),
+            'estado_pago':    c.estado_pago,
+            'fecha_vencimiento': c.fecha_vencimiento,
+            'fecha_pago':     c.fecha_pago,
+        }
+        for c in cuotas
+    ]
+
+    moviles_activos = Movil.objects.filter(
+        estado_operativo__in=['DISPONIBLE', 'EN_SERVICIO']
+    ).count()
+
+    return Response({
+        'periodo':         periodo,
+        'moviles_activos': moviles_activos,
+        'esperado':        float(esperado),
+        'cobrado':         float(cobrado),
+        'pendiente':       float(pendiente),
+        'porcentaje':      round((float(cobrado) / float(esperado) * 100) if esperado else 0, 1),
+        'detalle':         detalle,
+    })
+
+
+@api_view(['POST'])
+def cerrar_periodo(request):
+    """
+    Marca como VENCIDO todas las cuotas PENDIENTE cuya fecha_vencimiento ya pasó
+    y genera bloqueos para esos socios (llama al mismo código que bloquear_morosos).
+    """
+    from taxiasiste.socios.models import Bloqueo
+    from taxiasiste.utils.oracle_seq import nextval
+
+    hoy = timezone.now().date()
+    cuotas_morosas = list(
+        Cuota.objects.filter(estado_pago='PENDIENTE', fecha_vencimiento__lt=hoy).select_related('socio')
+    )
+    total_vencidas = len(cuotas_morosas)
+
+    bloqueados = 0
+    for cuota in cuotas_morosas:
+        cuota.estado_pago = 'VENCIDO'
+        cuota.save(update_fields=['estado_pago'])
+
+        ya_bloqueado = Bloqueo.objects.filter(
+            socio=cuota.socio, activo=1, tipo_bloqueo='CUOTA_VENCIDA'
+        ).exists()
+        if not ya_bloqueado:
+            bloqueo = Bloqueo()
+            bloqueo.id_bloqueo      = nextval('seq_bloqueos')
+            bloqueo.socio           = cuota.socio
+            bloqueo.motivo          = f'Cuota vencida período {cuota.periodo}'
+            bloqueo.tipo_bloqueo    = 'CUOTA_VENCIDA'
+            bloqueo.fecha_inicio    = hoy
+            bloqueo.activo          = 1
+            bloqueo.save()
+
+            socio = cuota.socio
+            socio.estado_socio = 'BLOQUEADO'
+            socio.save(update_fields=['estado_socio'])
+            bloqueados += 1
+
+    return Response({
+        'cuotas_vencidas':    total_vencidas,
+        'socios_bloqueados':  bloqueados,
+        'fecha':              hoy,
+    })
+
+
+@api_view(['GET'])
 def cuotas_vencidas(request):
     """Cuotas sin pagar con fecha de vencimiento pasada."""
     hoy = timezone.now().date()

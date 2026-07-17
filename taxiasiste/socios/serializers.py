@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import Bloqueo, Cuota, Socio, TesoreriaMovimiento
@@ -5,6 +6,7 @@ from .models import Bloqueo, Cuota, Socio, TesoreriaMovimiento
 
 class SocioSerializer(serializers.ModelSerializer):
     nombre_completo = serializers.SerializerMethodField()
+    cuotas_vencidas = serializers.SerializerMethodField()
 
     class Meta:
         model = Socio
@@ -20,11 +22,19 @@ class SocioSerializer(serializers.ModelSerializer):
             'estado_socio',
             'fecha_ingreso',
             'fecha_egreso',
+            'cuotas_vencidas',
         ]
         read_only_fields = ['id_socio']
 
     def get_nombre_completo(self, obj):
         return f'{obj.nombre} {obj.apellido}'
+
+    def get_cuotas_vencidas(self, obj):
+        hoy = timezone.now().date()
+        return obj.cuotas.filter(
+            estado_pago__in=['PENDIENTE', 'VENCIDO'],
+            fecha_vencimiento__lt=hoy,
+        ).count()
 
 
 class CuotaSerializer(serializers.ModelSerializer):
