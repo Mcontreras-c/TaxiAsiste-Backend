@@ -105,50 +105,60 @@ def resumen_tesorero(request):
     """
     Resumen financiero por período para el Tesorero.
     ?periodo=YYYY-MM  (default: mes actual)
-    Devuelve esperado, cobrado, pendientes y detalle por socio.
+    Devuelve todos los móviles activos con su estado de pago para el período.
     """
-    from django.db.models import Sum, Q
+    from django.db.models import Sum
     from taxiasiste.moviles.models import Movil
 
     periodo = request.query_params.get('periodo') or timezone.now().strftime('%Y-%m')
     anio, mes = periodo.split('-')
 
-    cuotas = (
-        Cuota.objects
-        .filter(periodo__year=anio, periodo__month=mes)
+    # Todos los móviles operativos con su socio
+    moviles = (
+        Movil.objects
+        .filter(estado_operativo__in=['DISPONIBLE', 'EN_SERVICIO'])
         .select_related('socio')
         .order_by('socio__nombre')
     )
 
-    esperado   = cuotas.aggregate(t=Sum('monto'))['t'] or 0
-    cobrado    = cuotas.filter(estado_pago='PAGADO').aggregate(t=Sum('monto'))['t'] or 0
-    pendiente  = cuotas.filter(estado_pago__in=['PENDIENTE', 'VENCIDO']).aggregate(t=Sum('monto'))['t'] or 0
+    # Cuotas del período indexadas por socio
+    cuotas_periodo = {
+        c.socio_id: c
+        for c in Cuota.objects.filter(periodo__year=anio, periodo__month=mes)
+    }
 
-    detalle = [
-        {
-            'id_cuota':       c.id_cuota,
-            'id_socio':       c.socio.id_socio,
-            'rut':            c.socio.rut,
-            'socio':          str(c.socio),
-            'monto':          float(c.monto),
-            'estado_pago':    c.estado_pago,
-            'fecha_vencimiento': c.fecha_vencimiento,
-            'fecha_pago':     c.fecha_pago,
-        }
-        for c in cuotas
-    ]
+    tarifa_default = float(request.query_params.get('tarifa', 0))
 
-    moviles_activos = Movil.objects.filter(
-        estado_operativo__in=['DISPONIBLE', 'EN_SERVICIO']
-    ).count()
+    detalle = []
+    for m in moviles:
+        cuota = cuotas_periodo.get(m.socio_id)
+        detalle.append({
+            'id_movil':   m.id_movil,
+            'patente':    m.patente,
+            'id_socio':   m.socio.id_socio,
+            'rut':        m.socio.rut,
+            'socio':      str(m.socio),
+            'id_cuota':   cuota.id_cuota if cuota else None,
+            'monto':      float(cuota.monto) if cuota else tarifa_default,
+            'estado_pago':cuota.estado_pago if cuota else 'SIN_CUOTA',
+            'fecha_pago': cuota.fecha_pago if cuota else None,
+        })
+
+    cobrado_total = sum(
+        d['monto'] for d in detalle if d['estado_pago'] == 'PAGADO'
+    )
+    esperado_total = sum(d['monto'] for d in detalle if d['estado_pago'] != 'SIN_CUOTA' or tarifa_default > 0)
+
+    pagados   = sum(1 for d in detalle if d['estado_pago'] == 'PAGADO')
+    pendientes = len(detalle) - pagados
 
     return Response({
         'periodo':         periodo,
-        'moviles_activos': moviles_activos,
-        'esperado':        float(esperado),
-        'cobrado':         float(cobrado),
-        'pendiente':       float(pendiente),
-        'porcentaje':      round((float(cobrado) / float(esperado) * 100) if esperado else 0, 1),
+        'moviles_activos': len(moviles),
+        'pagados':         pagados,
+        'pendientes':      pendientes,
+        'cobrado':         cobrado_total,
+        'porcentaje':      round((cobrado_total / esperado_total * 100) if esperado_total else 0, 1),
         'detalle':         detalle,
     })
 

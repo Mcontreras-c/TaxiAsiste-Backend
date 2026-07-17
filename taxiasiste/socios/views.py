@@ -64,6 +64,73 @@ class TesoreriaMovimientoViewSet(ModelViewSet):
         })
 
     @action(detail=False, methods=['post'])
+    def pagar_movil(self, request):
+        """
+        Registra el pago de cuota de un móvil para un período.
+        Si la cuota no existe, la crea. Si ya existe, la marca como PAGADO.
+        Body: { id_socio, monto, periodo (YYYY-MM) }
+        """
+        from taxiasiste.utils.oracle_seq import nextval
+        import datetime
+
+        id_socio = request.data.get('id_socio')
+        monto    = request.data.get('monto')
+        periodo_str = request.data.get('periodo')  # YYYY-MM
+
+        if not id_socio or not monto or not periodo_str:
+            return Response({'error': 'id_socio, monto y periodo son requeridos.'}, status=400)
+
+        try:
+            socio = Socio.objects.get(pk=id_socio)
+        except Socio.DoesNotExist:
+            return Response({'error': 'Socio no encontrado.'}, status=404)
+
+        anio, mes = periodo_str.split('-')
+        # Fecha de vencimiento: último día del mes
+        ultimo_dia = (datetime.date(int(anio), int(mes) % 12 + 1, 1) - datetime.timedelta(days=1)
+                      if int(mes) < 12
+                      else datetime.date(int(anio), 12, 31))
+
+        # Buscar cuota existente para el período
+        hoy = timezone.now().date()
+        periodo_date = datetime.date(int(anio), int(mes), 1)
+        cuota = Cuota.objects.filter(socio=socio, periodo__year=anio, periodo__month=mes).first()
+
+        if not cuota:
+            cuota = Cuota()
+            cuota.id_cuota         = nextval('seq_cuotas')
+            cuota.socio            = socio
+            cuota.periodo          = periodo_date
+            cuota.monto            = monto
+            cuota.fecha_vencimiento = ultimo_dia
+            cuota.estado_pago      = 'PENDIENTE'
+            cuota.save()
+
+        if cuota.estado_pago == 'PAGADO':
+            return Response({'error': 'Esta cuota ya está pagada.'}, status=400)
+
+        cuota.estado_pago = 'PAGADO'
+        cuota.fecha_pago  = hoy
+        cuota.save()
+
+        mov = TesoreriaMovimiento()
+        mov.id_movimiento   = nextval('seq_tesoreria_mov')
+        mov.usuario_registra = request.user
+        mov.cuota            = cuota
+        mov.tipo             = 'INGRESO'
+        mov.categoria        = 'CUOTA'
+        mov.descripcion      = f'Pago cuota {periodo_str} — {socio}'
+        mov.monto            = cuota.monto
+        mov.fecha            = hoy
+        mov.save()
+
+        return Response({
+            'message':    'Pago registrado correctamente.',
+            'id_cuota':   cuota.id_cuota,
+            'estado_pago':'PAGADO',
+        })
+
+    @action(detail=False, methods=['post'])
     def registrar_pago_cuota(self, request):
         """Marca una cuota como PAGADA y crea el movimiento de ingreso."""
         id_cuota = request.data.get('id_cuota')
