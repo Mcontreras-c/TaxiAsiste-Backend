@@ -4,7 +4,8 @@ from .models import FilaBase, Movil
 
 
 class MovilSerializer(serializers.ModelSerializer):
-    socio_nombre = serializers.CharField(source='socio.__str__', read_only=True)
+    socio_nombre   = serializers.CharField(source='socio.__str__', read_only=True)
+    socio_telefono = serializers.CharField(source='socio.telefono', read_only=True)
 
     class Meta:
         model = Movil
@@ -12,6 +13,7 @@ class MovilSerializer(serializers.ModelSerializer):
             'id_movil',
             'socio',
             'socio_nombre',
+            'socio_telefono',
             'patente',
             'marca',
             'modelo',
