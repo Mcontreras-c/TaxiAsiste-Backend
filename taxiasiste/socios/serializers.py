@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Bloqueo, Cuota, Socio
+from .models import Bloqueo, Cuota, Socio, TesoreriaMovimiento
 
 
 class SocioSerializer(serializers.ModelSerializer):
@@ -64,3 +64,22 @@ class BloqueoSerializer(serializers.ModelSerializer):
             'activo',
         ]
         read_only_fields = ['id_bloqueo']
+
+
+class TesoreriaMovimientoSerializer(serializers.ModelSerializer):
+    usuario_nombre = serializers.CharField(source='usuario_registra.username', read_only=True)
+
+    class Meta:
+        model = TesoreriaMovimiento
+        fields = [
+            'id_movimiento',
+            'usuario_registra',
+            'usuario_nombre',
+            'cuota',
+            'tipo',
+            'categoria',
+            'descripcion',
+            'monto',
+            'fecha',
+        ]
+        read_only_fields = ['id_movimiento']

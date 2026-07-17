@@ -119,3 +119,49 @@ class Bloqueo(models.Model):
     def __str__(self):
         estado = 'vigente' if self.activo else 'levantado'
         return f'Bloqueo {self.tipo_bloqueo} — {self.socio} ({estado})'
+
+
+class TesoreriaMovimiento(models.Model):
+    TIPO_CHOICES = [('INGRESO', 'Ingreso'), ('EGRESO', 'Egreso')]
+    CATEGORIA_CHOICES = [
+        ('CUOTA', 'Cuota'),
+        ('MULTA', 'Multa'),
+        ('GASTO_OPERACIONAL', 'Gasto Operacional'),
+        ('OTRO', 'Otro'),
+    ]
+
+    id_movimiento = models.FloatField(primary_key=True)
+    usuario_registra = models.ForeignKey(
+        'usuarios.Usuario',
+        models.DO_NOTHING,
+        db_column='id_usuario_registra',
+        blank=True,
+        null=True,
+        related_name='movimientos_tesoreria',
+    )
+    cuota = models.ForeignKey(
+        Cuota,
+        models.DO_NOTHING,
+        db_column='id_cuota',
+        blank=True,
+        null=True,
+        related_name='movimientos',
+    )
+    tipo = models.CharField(max_length=10, choices=TIPO_CHOICES)
+    categoria = models.CharField(max_length=30, choices=CATEGORIA_CHOICES)
+    descripcion = models.CharField(max_length=300)
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    fecha = models.DateField()
+
+    class Meta:
+        managed = False
+        db_table = 'TESORERIA_MOVIMIENTOS'
+        db_table_comment = 'Ingresos y egresos del sindicato — gestionados por el Tesorero'
+
+    def save(self, *args, **kwargs):
+        if not self.id_movimiento:
+            self.id_movimiento = nextval('seq_tesoreria_mov')
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.tipo} | {self.categoria} | ${self.monto} | {self.fecha}'
