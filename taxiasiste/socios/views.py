@@ -131,6 +131,75 @@ class TesoreriaMovimientoViewSet(ModelViewSet):
         })
 
     @action(detail=False, methods=['post'])
+    def pagar_atrasos(self, request):
+        """
+        Paga todas las cuotas PENDIENTE/VENCIDO de un socio moroso,
+        crea un movimiento de ingreso por cada una, desactiva sus bloqueos
+        y reactiva al socio.
+        Body: { id_socio }
+        """
+        from taxiasiste.utils.oracle_seq import nextval
+
+        id_socio = request.data.get('id_socio')
+        if not id_socio:
+            return Response({'error': 'id_socio es requerido.'}, status=400)
+
+        try:
+            socio = Socio.objects.get(pk=id_socio)
+        except Socio.DoesNotExist:
+            return Response({'error': 'Socio no encontrado.'}, status=404)
+
+        hoy = timezone.now().date()
+        cuotas_atrasadas = list(
+            Cuota.objects.filter(
+                socio=socio,
+                estado_pago__in=['PENDIENTE', 'VENCIDO'],
+                fecha_vencimiento__lt=hoy,
+            ).order_by('periodo')
+        )
+
+        if not cuotas_atrasadas:
+            return Response({'error': 'Este socio no tiene cuotas atrasadas.'}, status=400)
+
+        total_pagado = 0
+        movimientos_ids = []
+        for cuota in cuotas_atrasadas:
+            cuota.estado_pago = 'PAGADO'
+            cuota.fecha_pago  = hoy
+            cuota.save()
+
+            mov = TesoreriaMovimiento()
+            mov.id_movimiento    = nextval('seq_tesoreria_mov')
+            mov.usuario_registra = request.user
+            mov.cuota            = cuota
+            mov.tipo             = 'INGRESO'
+            mov.categoria        = 'CUOTA'
+            mov.descripcion      = f'Pago atraso cuota {cuota.periodo.strftime("%Y-%m")} — {socio}'
+            mov.monto            = cuota.monto
+            mov.fecha            = hoy
+            mov.save()
+            total_pagado += float(cuota.monto)
+            movimientos_ids.append(mov.id_movimiento)
+
+        # Desactivar todos los bloqueos CUOTA_VENCIDA activos del socio
+        Bloqueo.objects.filter(socio=socio, activo=1, tipo_bloqueo='CUOTA_VENCIDA').update(
+            activo=0, fecha_fin=hoy
+        )
+
+        # Reactivar socio solo si no tiene otros bloqueos activos
+        tiene_otros_bloqueos = Bloqueo.objects.filter(socio=socio, activo=1).exists()
+        if not tiene_otros_bloqueos:
+            socio.estado_socio = 'ACTIVO'
+            socio.save(update_fields=['estado_socio'])
+
+        return Response({
+            'message':       f'{len(cuotas_atrasadas)} cuota(s) pagada(s). Socio desbloqueado.',
+            'cuotas_pagadas': len(cuotas_atrasadas),
+            'total_pagado':  total_pagado,
+            'estado_socio':  socio.estado_socio,
+        })
+
+    @action(detail=False, methods=['post'])
     def registrar_pago_cuota(self, request):
         """Marca una cuota como PAGADA y crea el movimiento de ingreso."""
         id_cuota = request.data.get('id_cuota')

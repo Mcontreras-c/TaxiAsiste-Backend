@@ -113,10 +113,10 @@ def resumen_tesorero(request):
     periodo = request.query_params.get('periodo') or timezone.now().strftime('%Y-%m')
     anio, mes = periodo.split('-')
 
-    # Todos los móviles operativos con su socio
+    # Todos los móviles con su socio (sin filtrar por estado)
     moviles = (
         Movil.objects
-        .filter(estado_operativo__in=['DISPONIBLE', 'EN_SERVICIO'])
+        .exclude(estado_operativo='INACTIVO')
         .select_related('socio')
         .order_by('socio__nombre')
     )
@@ -127,38 +127,46 @@ def resumen_tesorero(request):
         for c in Cuota.objects.filter(periodo__year=anio, periodo__month=mes)
     }
 
-    tarifa_default = float(request.query_params.get('tarifa', 0))
+    # Cuotas vencidas (PENDIENTE/VENCIDO con fecha pasada) por socio
+    hoy = timezone.now().date()
+    from django.db.models import Count
+    vencidas_por_socio = {
+        row['socio_id']: row['total']
+        for row in Cuota.objects
+            .filter(estado_pago__in=['PENDIENTE', 'VENCIDO'], fecha_vencimiento__lt=hoy)
+            .values('socio_id')
+            .annotate(total=Count('id_cuota'))
+    }
 
     detalle = []
     for m in moviles:
         cuota = cuotas_periodo.get(m.socio_id)
         detalle.append({
-            'id_movil':   m.id_movil,
-            'patente':    m.patente,
-            'id_socio':   m.socio.id_socio,
-            'rut':        m.socio.rut,
-            'socio':      str(m.socio),
-            'id_cuota':   cuota.id_cuota if cuota else None,
-            'monto':      float(cuota.monto) if cuota else tarifa_default,
-            'estado_pago':cuota.estado_pago if cuota else 'SIN_CUOTA',
-            'fecha_pago': cuota.fecha_pago if cuota else None,
+            'id_movil':        m.id_movil,
+            'patente':         m.patente,
+            'estado_movil':    m.estado_operativo,
+            'id_socio':        m.socio.id_socio,
+            'rut':             m.socio.rut,
+            'socio':           str(m.socio),
+            'estado_socio':    m.socio.estado_socio,
+            'id_cuota':        cuota.id_cuota if cuota else None,
+            'monto':           float(cuota.monto) if cuota else 0,
+            'estado_pago':     cuota.estado_pago if cuota else 'SIN_CUOTA',
+            'fecha_pago':      cuota.fecha_pago if cuota else None,
+            'cuotas_vencidas': vencidas_por_socio.get(m.socio_id, 0),
         })
 
-    cobrado_total = sum(
-        d['monto'] for d in detalle if d['estado_pago'] == 'PAGADO'
-    )
-    esperado_total = sum(d['monto'] for d in detalle if d['estado_pago'] != 'SIN_CUOTA' or tarifa_default > 0)
-
-    pagados   = sum(1 for d in detalle if d['estado_pago'] == 'PAGADO')
-    pendientes = len(detalle) - pagados
+    cobrado_total  = sum(d['monto'] for d in detalle if d['estado_pago'] == 'PAGADO')
+    pagados        = sum(1 for d in detalle if d['estado_pago'] == 'PAGADO')
+    pendientes     = len(detalle) - pagados
 
     return Response({
         'periodo':         periodo,
-        'moviles_activos': len(moviles),
+        'total_moviles':   len(detalle),
         'pagados':         pagados,
         'pendientes':      pendientes,
         'cobrado':         cobrado_total,
-        'porcentaje':      round((cobrado_total / esperado_total * 100) if esperado_total else 0, 1),
+        'porcentaje':      round((pagados / len(detalle) * 100) if detalle else 0, 1),
         'detalle':         detalle,
     })
 
