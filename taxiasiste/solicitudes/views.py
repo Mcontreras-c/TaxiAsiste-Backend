@@ -101,5 +101,22 @@ class SolicitudViewSet(ModelViewSet):
             solicitud.fecha_termino = ahora
             update_fields.append('fecha_termino')
 
+        observacion = request.data.get('observacion')
+        if observacion:
+            solicitud.observaciones = observacion
+            update_fields.append('observaciones')
+
         solicitud.save(update_fields=update_fields)
         return Response(SolicitudSerializer(solicitud).data)
+
+    @action(detail=False, methods=['get'])
+    def resumen_central(self, request):
+        """Resumen para la Central: pendientes, en curso y últimas 4 finalizadas."""
+        pendientes  = self.queryset.filter(estado='PENDIENTE')
+        en_curso    = self.queryset.filter(estado__in=['ASIGNADO', 'EN_CURSO'])
+        finalizadas = self.queryset.filter(estado__in=['COMPLETADO', 'CANCELADO'])[:4]
+        return Response({
+            'pendientes':  SolicitudListSerializer(pendientes, many=True).data,
+            'en_curso':    SolicitudListSerializer(en_curso, many=True).data,
+            'finalizadas': SolicitudListSerializer(finalizadas, many=True).data,
+        })

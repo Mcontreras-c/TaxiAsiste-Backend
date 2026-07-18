@@ -7,6 +7,8 @@ from .views import (
     solicitudes_por_estado,
     socios_bloqueados,
     cuotas_vencidas,
+    resumen_tesorero,
+    cerrar_periodo,
 )
 
 router = SimpleRouter()
@@ -17,4 +19,6 @@ urlpatterns = router.urls + [
     path('reportes/solicitudes_por_estado/', solicitudes_por_estado, name='solicitudes-por-estado'),
     path('reportes/socios_bloqueados/', socios_bloqueados, name='socios-bloqueados'),
     path('reportes/cuotas_vencidas/', cuotas_vencidas, name='cuotas-vencidas'),
+    path('reportes/resumen_tesorero/', resumen_tesorero, name='resumen-tesorero'),
+    path('reportes/cerrar_periodo/', cerrar_periodo, name='cerrar-periodo'),
 ]

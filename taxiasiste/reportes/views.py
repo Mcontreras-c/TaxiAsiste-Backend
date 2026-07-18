@@ -101,6 +101,122 @@ def socios_bloqueados(request):
 
 
 @api_view(['GET'])
+def resumen_tesorero(request):
+    """
+    Resumen financiero por período para el Tesorero.
+    ?periodo=YYYY-MM  (default: mes actual)
+    Devuelve todos los móviles activos con su estado de pago para el período.
+    """
+    from django.db.models import Sum
+    from taxiasiste.moviles.models import Movil
+
+    periodo = request.query_params.get('periodo') or timezone.now().strftime('%Y-%m')
+    anio, mes = periodo.split('-')
+
+    # Todos los móviles con su socio (sin filtrar por estado)
+    moviles = (
+        Movil.objects
+        .exclude(estado_operativo='INACTIVO')
+        .select_related('socio')
+        .order_by('socio__nombre')
+    )
+
+    # Cuotas del período indexadas por socio
+    cuotas_periodo = {
+        c.socio_id: c
+        for c in Cuota.objects.filter(periodo__year=anio, periodo__month=mes)
+    }
+
+    # Cuotas vencidas (PENDIENTE/VENCIDO con fecha pasada) por socio
+    hoy = timezone.now().date()
+    from django.db.models import Count
+    vencidas_por_socio = {
+        row['socio_id']: row['total']
+        for row in Cuota.objects
+            .filter(estado_pago__in=['PENDIENTE', 'VENCIDO'], fecha_vencimiento__lt=hoy)
+            .values('socio_id')
+            .annotate(total=Count('id_cuota'))
+    }
+
+    detalle = []
+    for m in moviles:
+        cuota = cuotas_periodo.get(m.socio_id)
+        detalle.append({
+            'id_movil':        m.id_movil,
+            'patente':         m.patente,
+            'estado_movil':    m.estado_operativo,
+            'id_socio':        m.socio.id_socio,
+            'rut':             m.socio.rut,
+            'socio':           str(m.socio),
+            'estado_socio':    m.socio.estado_socio,
+            'id_cuota':        cuota.id_cuota if cuota else None,
+            'monto':           float(cuota.monto) if cuota else 0,
+            'estado_pago':     cuota.estado_pago if cuota else 'SIN_CUOTA',
+            'fecha_pago':      cuota.fecha_pago if cuota else None,
+            'cuotas_vencidas': vencidas_por_socio.get(m.socio_id, 0),
+        })
+
+    cobrado_total  = sum(d['monto'] for d in detalle if d['estado_pago'] == 'PAGADO')
+    pagados        = sum(1 for d in detalle if d['estado_pago'] == 'PAGADO')
+    pendientes     = len(detalle) - pagados
+
+    return Response({
+        'periodo':         periodo,
+        'total_moviles':   len(detalle),
+        'pagados':         pagados,
+        'pendientes':      pendientes,
+        'cobrado':         cobrado_total,
+        'porcentaje':      round((pagados / len(detalle) * 100) if detalle else 0, 1),
+        'detalle':         detalle,
+    })
+
+
+@api_view(['POST'])
+def cerrar_periodo(request):
+    """
+    Marca como VENCIDO todas las cuotas PENDIENTE cuya fecha_vencimiento ya pasó
+    y genera bloqueos para esos socios (llama al mismo código que bloquear_morosos).
+    """
+    from taxiasiste.socios.models import Bloqueo
+    from taxiasiste.utils.oracle_seq import nextval
+
+    hoy = timezone.now().date()
+    cuotas_morosas = list(
+        Cuota.objects.filter(estado_pago='PENDIENTE', fecha_vencimiento__lt=hoy).select_related('socio')
+    )
+    total_vencidas = len(cuotas_morosas)
+
+    bloqueados = 0
+    for cuota in cuotas_morosas:
+        cuota.estado_pago = 'VENCIDO'
+        cuota.save(update_fields=['estado_pago'])
+
+        ya_bloqueado = Bloqueo.objects.filter(
+            socio=cuota.socio, activo=1, tipo_bloqueo='CUOTA_VENCIDA'
+        ).exists()
+        if not ya_bloqueado:
+            bloqueo = Bloqueo()
+            bloqueo.id_bloqueo      = nextval('seq_bloqueos')
+            bloqueo.socio           = cuota.socio
+            bloqueo.motivo          = f'Cuota vencida período {cuota.periodo}'
+            bloqueo.tipo_bloqueo    = 'CUOTA_VENCIDA'
+            bloqueo.fecha_inicio    = hoy
+            bloqueo.activo          = 1
+            bloqueo.save()
+
+            socio = cuota.socio
+            socio.estado_socio = 'BLOQUEADO'
+            socio.save(update_fields=['estado_socio'])
+            bloqueados += 1
+
+    return Response({
+        'cuotas_vencidas':    total_vencidas,
+        'socios_bloqueados':  bloqueados,
+        'fecha':              hoy,
+    })
+
+
+@api_view(['GET'])
 def cuotas_vencidas(request):
     """Cuotas sin pagar con fecha de vencimiento pasada."""
     hoy = timezone.now().date()

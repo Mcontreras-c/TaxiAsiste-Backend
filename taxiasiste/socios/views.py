@@ -1,9 +1,10 @@
+from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from .models import Bloqueo, Cuota, Socio
-from .serializers import BloqueoSerializer, CuotaSerializer, SocioSerializer
+from .models import Bloqueo, Cuota, Socio, TesoreriaMovimiento
+from .serializers import BloqueoSerializer, CuotaSerializer, SocioSerializer, TesoreriaMovimientoSerializer
 
 
 class SocioViewSet(ModelViewSet):
@@ -40,3 +41,195 @@ class CuotaViewSet(ModelViewSet):
 class BloqueoViewSet(ModelViewSet):
     queryset = Bloqueo.objects.select_related('socio', 'usuario_registra').order_by('-fecha_inicio')
     serializer_class = BloqueoSerializer
+
+
+class TesoreriaMovimientoViewSet(ModelViewSet):
+    queryset = TesoreriaMovimiento.objects.select_related(
+        'usuario_registra', 'cuota'
+    ).order_by('-fecha')
+    serializer_class = TesoreriaMovimientoSerializer
+
+    @action(detail=False, methods=['get'])
+    def balance(self, request):
+        """Resumen financiero: total ingresos, egresos y balance."""
+        from django.db.models import Sum
+        qs = TesoreriaMovimiento.objects.all()
+        ingresos = qs.filter(tipo='INGRESO').aggregate(total=Sum('monto'))['total'] or 0
+        egresos  = qs.filter(tipo='EGRESO').aggregate(total=Sum('monto'))['total'] or 0
+        return Response({
+            'ingresos': float(ingresos),
+            'egresos':  float(egresos),
+            'balance':  float(ingresos - egresos),
+            'fecha':    timezone.now().date().isoformat(),
+        })
+
+    @action(detail=False, methods=['post'])
+    def pagar_movil(self, request):
+        """
+        Registra el pago de cuota de un móvil para un período.
+        Si la cuota no existe, la crea. Si ya existe, la marca como PAGADO.
+        Body: { id_socio, monto, periodo (YYYY-MM) }
+        """
+        from taxiasiste.utils.oracle_seq import nextval
+        import datetime
+
+        id_socio = request.data.get('id_socio')
+        monto    = request.data.get('monto')
+        periodo_str = request.data.get('periodo')  # YYYY-MM
+
+        if not id_socio or not monto or not periodo_str:
+            return Response({'error': 'id_socio, monto y periodo son requeridos.'}, status=400)
+
+        try:
+            socio = Socio.objects.get(pk=id_socio)
+        except Socio.DoesNotExist:
+            return Response({'error': 'Socio no encontrado.'}, status=404)
+
+        anio, mes = periodo_str.split('-')
+        # Fecha de vencimiento: último día del mes
+        ultimo_dia = (datetime.date(int(anio), int(mes) % 12 + 1, 1) - datetime.timedelta(days=1)
+                      if int(mes) < 12
+                      else datetime.date(int(anio), 12, 31))
+
+        # Buscar cuota existente para el período
+        hoy = timezone.now().date()
+        periodo_date = datetime.date(int(anio), int(mes), 1)
+        cuota = Cuota.objects.filter(socio=socio, periodo__year=anio, periodo__month=mes).first()
+
+        if not cuota:
+            cuota = Cuota()
+            cuota.id_cuota         = nextval('seq_cuotas')
+            cuota.socio            = socio
+            cuota.periodo          = periodo_date
+            cuota.monto            = monto
+            cuota.fecha_vencimiento = ultimo_dia
+            cuota.estado_pago      = 'PENDIENTE'
+            cuota.save()
+
+        if cuota.estado_pago == 'PAGADO':
+            return Response({'error': 'Esta cuota ya está pagada.'}, status=400)
+
+        cuota.estado_pago = 'PAGADO'
+        cuota.fecha_pago  = hoy
+        cuota.save()
+
+        mov = TesoreriaMovimiento()
+        mov.id_movimiento   = nextval('seq_tesoreria_mov')
+        mov.usuario_registra = request.user
+        mov.cuota            = cuota
+        mov.tipo             = 'INGRESO'
+        mov.categoria        = 'CUOTA'
+        mov.descripcion      = f'Pago cuota {periodo_str} — {socio}'
+        mov.monto            = cuota.monto
+        mov.fecha            = hoy
+        mov.save()
+
+        return Response({
+            'message':    'Pago registrado correctamente.',
+            'id_cuota':   cuota.id_cuota,
+            'estado_pago':'PAGADO',
+        })
+
+    @action(detail=False, methods=['post'])
+    def pagar_atrasos(self, request):
+        """
+        Paga todas las cuotas PENDIENTE/VENCIDO de un socio moroso,
+        crea un movimiento de ingreso por cada una, desactiva sus bloqueos
+        y reactiva al socio.
+        Body: { id_socio }
+        """
+        from taxiasiste.utils.oracle_seq import nextval
+
+        id_socio = request.data.get('id_socio')
+        if not id_socio:
+            return Response({'error': 'id_socio es requerido.'}, status=400)
+
+        try:
+            socio = Socio.objects.get(pk=id_socio)
+        except Socio.DoesNotExist:
+            return Response({'error': 'Socio no encontrado.'}, status=404)
+
+        hoy = timezone.now().date()
+        cuotas_atrasadas = list(
+            Cuota.objects.filter(
+                socio=socio,
+                estado_pago__in=['PENDIENTE', 'VENCIDO'],
+                fecha_vencimiento__lt=hoy,
+            ).order_by('periodo')
+        )
+
+        if not cuotas_atrasadas:
+            return Response({'error': 'Este socio no tiene cuotas atrasadas.'}, status=400)
+
+        total_pagado = 0
+        movimientos_ids = []
+        for cuota in cuotas_atrasadas:
+            cuota.estado_pago = 'PAGADO'
+            cuota.fecha_pago  = hoy
+            cuota.save()
+
+            mov = TesoreriaMovimiento()
+            mov.id_movimiento    = nextval('seq_tesoreria_mov')
+            mov.usuario_registra = request.user
+            mov.cuota            = cuota
+            mov.tipo             = 'INGRESO'
+            mov.categoria        = 'CUOTA'
+            mov.descripcion      = f'Pago atraso cuota {cuota.periodo.strftime("%Y-%m")} — {socio}'
+            mov.monto            = cuota.monto
+            mov.fecha            = hoy
+            mov.save()
+            total_pagado += float(cuota.monto)
+            movimientos_ids.append(mov.id_movimiento)
+
+        # Desactivar todos los bloqueos CUOTA_VENCIDA activos del socio
+        Bloqueo.objects.filter(socio=socio, activo=1, tipo_bloqueo='CUOTA_VENCIDA').update(
+            activo=0, fecha_fin=hoy
+        )
+
+        # Reactivar socio solo si no tiene otros bloqueos activos
+        tiene_otros_bloqueos = Bloqueo.objects.filter(socio=socio, activo=1).exists()
+        if not tiene_otros_bloqueos:
+            socio.estado_socio = 'ACTIVO'
+            socio.save(update_fields=['estado_socio'])
+
+        return Response({
+            'message':       f'{len(cuotas_atrasadas)} cuota(s) pagada(s). Socio desbloqueado.',
+            'cuotas_pagadas': len(cuotas_atrasadas),
+            'total_pagado':  total_pagado,
+            'estado_socio':  socio.estado_socio,
+        })
+
+    @action(detail=False, methods=['post'])
+    def registrar_pago_cuota(self, request):
+        """Marca una cuota como PAGADA y crea el movimiento de ingreso."""
+        id_cuota = request.data.get('id_cuota')
+        observacion = request.data.get('observacion', '')
+        try:
+            cuota = Cuota.objects.get(pk=id_cuota)
+        except Cuota.DoesNotExist:
+            return Response({'error': 'Cuota no encontrada.'}, status=404)
+
+        if cuota.estado_pago == 'PAGADO':
+            return Response({'error': 'La cuota ya está pagada.'}, status=400)
+
+        cuota.estado_pago = 'PAGADO'
+        cuota.fecha_pago = timezone.now().date()
+        if observacion:
+            cuota.observacion = observacion
+        cuota.save()
+
+        mov = TesoreriaMovimiento(
+            usuario_registra=request.user,
+            cuota=cuota,
+            tipo='INGRESO',
+            categoria='CUOTA',
+            descripcion=f'Pago cuota {cuota.periodo} — {cuota.socio}',
+            monto=cuota.monto,
+            fecha=timezone.now().date(),
+        )
+        mov.save()
+
+        return Response({
+            'message': 'Cuota pagada registrada correctamente.',
+            'movimiento': TesoreriaMovimientoSerializer(mov).data,
+        })
