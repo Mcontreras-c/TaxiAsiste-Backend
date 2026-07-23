@@ -39,12 +39,16 @@ class UsuarioViewSet(ModelViewSet):
 
         movil = Movil.objects.filter(socio=socio).first()
 
+        from django.db.models import Q
+
         hoy = timezone.now().date()
         solicitudes_hoy = []
         if movil:
+            # Incluye lo del dia (por fecha del pedido) y ademas cualquier viaje
+            # activo del movil sin importar cuando se creo la solicitud original.
             solicitudes_hoy = Solicitud.objects.filter(
+                Q(fecha_hora__date=hoy) | Q(estado__in=['ASIGNADO', 'EN_CURSO']),
                 movil=movil,
-                fecha_hora__date=hoy,
             ).order_by('-fecha_hora')
 
         cuotas = Cuota.objects.filter(socio=socio).order_by('-periodo')

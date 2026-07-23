@@ -42,4 +42,4 @@ class FilaBaseSerializer(serializers.ModelSerializer):
             'fecha_salida',
             'estado',
         ]
-        read_only_fields = ['id_fila', 'posicion']
+        read_only_fields = ['id_fila', 'posicion', 'fecha_ingreso']
