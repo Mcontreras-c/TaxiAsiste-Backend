@@ -28,6 +28,7 @@ class PasajeroSerializer(serializers.ModelSerializer):
 class SolicitudListSerializer(serializers.ModelSerializer):
     """Serializer liviano para listados — evita queries pesadas."""
     pasajero_nombre = serializers.SerializerMethodField()
+    pasajero_telefono = serializers.CharField(source='pasajero.telefono', read_only=True)
     movil_patente = serializers.SerializerMethodField()
 
     class Meta:
@@ -38,6 +39,7 @@ class SolicitudListSerializer(serializers.ModelSerializer):
             'estado',
             'canal_entrada',
             'pasajero_nombre',
+            'pasajero_telefono',
             'movil_patente',
             'origen',
             'destino',

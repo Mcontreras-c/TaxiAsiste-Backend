@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -36,7 +37,7 @@ class FilaBaseViewSet(ModelViewSet):
             .values_list('posicion', flat=True)
             .first()
         )
-        serializer.save(posicion=(ultima or 0) + 1)
+        serializer.save(posicion=(ultima or 0) + 1, fecha_ingreso=timezone.now())
 
     @action(detail=True, methods=['post'])
     def llamar(self, request, pk=None):
