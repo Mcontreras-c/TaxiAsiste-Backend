@@ -50,15 +50,51 @@
 - Estados de SOLICITUDES: PENDIENTE → ASIGNADO → ACEPTADO
   → EN_CURSO → COMPLETADO / CANCELADO / REASIGNANDO
 
-## Estado actual
-- migrate ejecutado correctamente (tablas Django en Oracle)
-- 10 tablas de negocio creadas y verificadas en DBeaver
-- models.py de cada app probablemente desactualizados
-  (tienen las 9 tablas viejas, falta FILA_BASE y campos nuevos)
-- Próximo paso: reescribir models.py de cada app con las
-  10 tablas actuales y luego crear serializers y views
+## Estado actual (actualizado 2026-07-24)
+- Los 3 repos existen y estan funcionando de punta a punta:
+  Backend (Django+Oracle), Frontend web (React+Vite+TS), Mobile (React Native+Expo)
+- models.py, serializers.py y views.py de las 10 tablas ya estan escritos y probados
+- La seccion "SQL del esquema" mas abajo sigue vigente como referencia de columnas y tipos
 
-## Flujo operativo del negocio
+## Roles del sistema (tabla ROLES)
+- Administrador, Central, Tesorero, Conductor — manejados desde el Frontend web
+- Paletero — SOLO existe en la app Mobile (no tiene pantallas en el frontend web).
+  Ve la fila de base y puede llamar/retirar moviles. Usuario de prueba: paletero/paletero123
+- Usuarios de prueba: admin/admin123, central/central123, tesorero/tesorero123,
+  conductor/conductor123, paletero/paletero123
+
+## Flujo operativo real del negocio (distinto al diseño original de abajo)
+1. El pasajero puede llegar por 3 canales: TELEFONO (Central), APP, PRESENCIAL
+2. La solicitud queda PENDIENTE y es visible para TODOS los conductores en la app mobile
+3. Cualquier conductor puede "Aceptar solicitud" desde su celular → el sistema se la
+   asigna a su movil (estado ASIGNADO) - primero que acepta, se la lleva
+4. Si nadie la acepta desde la ruta, la Central puede verla en su panel web y asignarla
+   manualmente a un movil especifico (mismo endpoint cambiar_estado, con `movil` en el body)
+5. Conductor: ASIGNADO → EN_CURSO (inicia viaje) → COMPLETADO. Solo puede cancelar
+   mientras esta ASIGNADO, no una vez EN_CURSO
+6. Estados reales usados: PENDIENTE, ASIGNADO, EN_CURSO, COMPLETADO, CANCELADO
+   (los estados ACEPTADO/REASIGNANDO del diseño original no se implementaron)
+
+## Fila virtual y Paletero (real)
+- El conductor entra/sale de la fila desde su propia app mobile (pestaña "Fila Virtual"),
+  no hay un boton fisico "Llegada a base"
+- La posicion se asigna automaticamente en el backend (perform_create de FilaBaseViewSet)
+- El rol Paletero (mobile, pantalla separada del conductor) ve la fila ordenada por
+  posicion y usa los botones Llamar (EN_ESPERA -> LLAMADO) y Retirar (-> RETIRADO)
+- La Central en el frontend web tambien ve la fila (solo lectura, columna
+  "Fila Virtual (Base)" en la pantalla de Solicitudes) para saber cuantos moviles
+  hay en base como respaldo si ninguna solicitud pendiente es tomada por alguien en ruta
+
+## Gotchas importantes para levantar el entorno
+- Backend SIEMPRE con `python manage.py runserver 0.0.0.0:8000`, nunca sin el `0.0.0.0`
+  (si no, solo escucha en localhost y el emulador/celular de la app mobile no puede conectar)
+- Cuidado con lanzar el runserver dos veces (una manual + una de un agente/IA en background):
+  quedan varios procesos python compitiendo por el puerto 8000 y confunde mucho al debuggear
+- ALLOWED_HOSTS = ['*'] en settings.py (dev only, para permitir conexiones del emulador/celular)
+- Windows suele bloquear los puertos 8000 (Django) y 8081 (Metro/Expo de la app mobile) por
+  firewall la primera vez — ver detalles y guia completa en el README.md del repo Mobile
+
+## Flujo operativo original de diseño (referencia historica, ya no vigente al 100%)
 1. Pasajero llama a la central
 2. Central busca pasajero por RUT (autocompletar)
 3. Central registra solicitud (INMEDIATA o AGENDADA)
@@ -68,13 +104,6 @@
 7. Conductor acepta → ACEPTADO / rechaza → REASIGNANDO
 8. Si acepta: EN_CURSO → COMPLETADO
 9. Todo cambio queda en HISTORIAL_EVENTOS
-
-## Fila virtual (paletero)
-- Conductor llega a base y presiona botón en app
-- Django asigna posición según orden de llegada
-- Paletero ve lista ordenada en tiempo real
-- Paletero llama al primero → estado LLAMADO
-- Móvil sale → estado RETIRADO
 
 
 ## SQL del esquema (referencia exacta de columnas y tipos)
