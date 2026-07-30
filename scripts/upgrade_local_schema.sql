@@ -27,4 +27,31 @@ EXCEPTION
 END;
 /
 
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE SEQUENCE seq_ubicaciones START WITH 1 INCREMENT BY 1 NOCACHE';
+EXCEPTION
+    WHEN OTHERS THEN
+        IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+BEGIN
+    EXECUTE IMMEDIATE '
+        CREATE TABLE UBICACION_ACTUAL (
+            id_ubicacion NUMBER PRIMARY KEY,
+            id_movil NUMBER UNIQUE NOT NULL REFERENCES MOVILES(id_movil),
+            lat NUMBER(10,6) NOT NULL,
+            lng NUMBER(10,6) NOT NULL,
+            heading NUMBER(5,1),
+            velocidad_kmh NUMBER(5,1),
+            actualizado_en TIMESTAMP DEFAULT SYSTIMESTAMP,
+            CONSTRAINT chk_ubicacion_lat CHECK (lat BETWEEN -90 AND 90),
+            CONSTRAINT chk_ubicacion_lng CHECK (lng BETWEEN -180 AND 180)
+        )';
+EXCEPTION
+    WHEN OTHERS THEN
+        IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
 EXIT;

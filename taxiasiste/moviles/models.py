@@ -71,3 +71,31 @@ class FilaBase(models.Model):
 
     def __str__(self):
         return f'Pos {self.posicion} — {self.movil.patente} ({self.estado})'
+
+
+class UbicacionActual(models.Model):
+    id_ubicacion = models.FloatField(primary_key=True)
+    movil = models.OneToOneField(
+        Movil,
+        models.DO_NOTHING,
+        db_column='id_movil',
+        related_name='ubicacion_actual',
+    )
+    lat = models.DecimalField(max_digits=10, decimal_places=6)
+    lng = models.DecimalField(max_digits=10, decimal_places=6)
+    heading = models.DecimalField(max_digits=5, decimal_places=1, blank=True, null=True)
+    velocidad_kmh = models.DecimalField(max_digits=5, decimal_places=1, blank=True, null=True)
+    actualizado_en = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'UBICACION_ACTUAL'
+        db_table_comment = 'Ultima posicion GPS conocida de cada movil (no es historial)'
+
+    def save(self, *args, **kwargs):
+        if not self.id_ubicacion:
+            self.id_ubicacion = nextval('seq_ubicaciones')
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.movil.patente} @ ({self.lat}, {self.lng})'
