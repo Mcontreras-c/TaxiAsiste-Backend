@@ -92,3 +92,23 @@ class FilaBaseSerializer(serializers.ModelSerializer):
             'estado',
         ]
         read_only_fields = ['id_fila', 'posicion', 'fecha_ingreso']
+
+
+class UbicacionActualSerializer(serializers.ModelSerializer):
+    patente = serializers.CharField(source='movil.patente', read_only=True)
+    socio_nombre = serializers.CharField(source='movil.socio.__str__', read_only=True)
+
+    class Meta:
+        model = UbicacionActual
+        fields = [
+            'id_ubicacion',
+            'movil',
+            'patente',
+            'socio_nombre',
+            'lat',
+            'lng',
+            'heading',
+            'velocidad_kmh',
+            'actualizado_en',
+        ]
+        read_only_fields = ['id_ubicacion', 'movil', 'actualizado_en']

@@ -44,7 +44,9 @@ BEGIN
             lng NUMBER(10,6) NOT NULL,
             heading NUMBER(5,1),
             velocidad_kmh NUMBER(5,1),
-            actualizado_en TIMESTAMP DEFAULT SYSTIMESTAMP
+            actualizado_en TIMESTAMP DEFAULT SYSTIMESTAMP,
+            CONSTRAINT chk_ubicacion_lat CHECK (lat BETWEEN -90 AND 90),
+            CONSTRAINT chk_ubicacion_lng CHECK (lng BETWEEN -180 AND 180)
         )';
 EXCEPTION
     WHEN OTHERS THEN

@@ -85,12 +85,12 @@ class UbicacionActual(models.Model):
     lng = models.DecimalField(max_digits=10, decimal_places=6)
     heading = models.DecimalField(max_digits=5, decimal_places=1, blank=True, null=True)
     velocidad_kmh = models.DecimalField(max_digits=5, decimal_places=1, blank=True, null=True)
-    actualizado_en = models.DateTimeField()
+    actualizado_en = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         managed = False
         db_table = 'UBICACION_ACTUAL'
-        db_table_comment = 'Última posición GPS conocida por móvil (sin histórico)'
+        db_table_comment = 'Ultima posicion GPS conocida de cada movil (no es historial)'
 
     def save(self, *args, **kwargs):
         if not self.id_ubicacion:
