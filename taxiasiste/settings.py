@@ -16,7 +16,6 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
-    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -26,7 +25,6 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'drf_spectacular',
-    'channels',
     'taxiasiste.usuarios',
     'taxiasiste.socios',
     'taxiasiste.solicitudes',
@@ -64,15 +62,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'taxiasiste.wsgi.application'
-ASGI_APPLICATION = 'taxiasiste.asgi.application'
-
-# Capa en memoria: suficiente para desarrollo con un solo proceso.
-# En produccion con multiples workers, cambiar a channels_redis.core.RedisChannelLayer.
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
-    },
-}
 
 _oracle_service = config('ORACLE_SERVICE_NAME', default='')
 _oracle_host = config('ORACLE_HOST', default='localhost')

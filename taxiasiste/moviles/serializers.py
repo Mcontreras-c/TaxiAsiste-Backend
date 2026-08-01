@@ -58,22 +58,6 @@ class MovilSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
-class UbicacionActualSerializer(serializers.ModelSerializer):
-    # El GPS de un telefono real suele entregar mas de 6 decimales; en vez de
-    # rechazar la request, se redondea al mismo formato que la columna Oracle
-    # (NUMBER(10,6)) — 'rounding' hace que DecimalField cuantice en lugar de
-    # lanzar 'Ensure that there are no more than N decimal places'.
-    lat = RoundingDecimalField(max_digits=10, decimal_places=6)
-    lng = RoundingDecimalField(max_digits=10, decimal_places=6)
-    heading = RoundingDecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
-    velocidad_kmh = RoundingDecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
-
-    class Meta:
-        model = UbicacionActual
-        fields = ['lat', 'lng', 'heading', 'velocidad_kmh', 'actualizado_en']
-        read_only_fields = ['actualizado_en']
-
-
 class FilaBaseSerializer(serializers.ModelSerializer):
     patente = serializers.CharField(source='movil.patente', read_only=True)
     socio_nombre = serializers.CharField(source='movil.socio.__str__', read_only=True)
@@ -95,6 +79,14 @@ class FilaBaseSerializer(serializers.ModelSerializer):
 
 
 class UbicacionActualSerializer(serializers.ModelSerializer):
+    # El GPS de un telefono real suele entregar mas de 6 decimales; en vez de
+    # rechazar la request, se redondea al mismo formato que la columna Oracle
+    # (NUMBER(10,6)) — 'rounding' hace que DecimalField cuantice en lugar de
+    # lanzar 'Ensure that there are no more than N decimal places'.
+    lat = RoundingDecimalField(max_digits=10, decimal_places=6)
+    lng = RoundingDecimalField(max_digits=10, decimal_places=6)
+    heading = RoundingDecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    velocidad_kmh = RoundingDecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
     patente = serializers.CharField(source='movil.patente', read_only=True)
     socio_nombre = serializers.CharField(source='movil.socio.__str__', read_only=True)
 
