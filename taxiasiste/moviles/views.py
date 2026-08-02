@@ -3,10 +3,12 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from .models import FilaBase, Movil, UbicacionActual
+from .permissions import EsPropietarioDelMovilOStaff
 from .serializers import FilaBaseSerializer, MovilSerializer, UbicacionActualSerializer
 
 SEGUNDOS_ONLINE = 45
@@ -15,6 +17,7 @@ SEGUNDOS_ONLINE = 45
 class MovilViewSet(ModelViewSet):
     queryset = Movil.objects.select_related('socio', 'ubicacion_actual').order_by('patente')
     serializer_class = MovilSerializer
+    permission_classes = [IsAuthenticated, EsPropietarioDelMovilOStaff]
 
     @action(detail=False, methods=['get'])
     def disponibles(self, request):
