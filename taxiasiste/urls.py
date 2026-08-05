@@ -4,7 +4,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from taxiasiste.login import LoginView
-from taxiasiste.views import ping
+from taxiasiste.views import geocodificar, ping, ruta
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -13,6 +13,8 @@ urlpatterns = [
     path('api/login/', LoginView.as_view(), name='login'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/ping/', ping, name='ping'),
+    path('api/geocodificar/', geocodificar, name='geocodificar'),
+    path('api/ruta/', ruta, name='ruta'),
     path('api/', include('taxiasiste.usuarios.urls')),
     path('api/', include('taxiasiste.socios.urls')),
     path('api/', include('taxiasiste.moviles.urls')),
