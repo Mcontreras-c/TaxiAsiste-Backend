@@ -59,11 +59,25 @@ class FilaBaseViewSet(ModelViewSet):
     serializer_class = FilaBaseSerializer
 
     def get_queryset(self):
-        """Por defecto muestra solo los EN_ESPERA; con ?todos=1 muestra el historial completo."""
+        """
+        En el listado, por defecto muestra solo los EN_ESPERA (?todos=1 para el
+        historial completo). Las acciones sobre un registro puntual (retrieve,
+        llamar, retirar) buscan por id_fila en TODOS los estados — si no, un
+        movil en LLAMADO nunca se podria retirar porque ya no matchea el
+        filtro EN_ESPERA de la lista.
+        """
         qs = FilaBase.objects.select_related('movil__socio').order_by('posicion')
-        if self.request.query_params.get('todos', '0') != '1':
+        if self.action == 'list' and self.request.query_params.get('todos', '0') != '1':
             return qs.filter(estado='EN_ESPERA')
         return qs
+
+    def create(self, request, *args, **kwargs):
+        """Evita duplicados: un movil no puede tener dos entradas activas en la fila."""
+        movil_id = request.data.get('movil')
+        ya_en_fila = FilaBase.objects.filter(movil_id=movil_id, estado__in=['EN_ESPERA', 'LLAMADO']).first()
+        if ya_en_fila:
+            return Response(FilaBaseSerializer(ya_en_fila).data, status=status.HTTP_200_OK)
+        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         """Asigna la posición automáticamente al ingresar a la fila."""
@@ -91,7 +105,7 @@ class FilaBaseViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def retirar(self, request, pk=None):
-        """Móvil sale de la base → estado RETIRADO."""
+        """Móvil sale de la base → estado RETIRADO, y se recorre la posición del resto."""
         entrada = self.get_object()
         if entrada.estado not in ('EN_ESPERA', 'LLAMADO'):
             return Response(
@@ -101,6 +115,15 @@ class FilaBaseViewSet(ModelViewSet):
         entrada.estado = 'RETIRADO'
         entrada.fecha_salida = timezone.now()
         entrada.save(update_fields=['estado', 'fecha_salida'])
+
+        # Re-numera al resto de la fila (EN_ESPERA) por orden de llegada, para
+        # que no queden "huecos" en las posiciones (ej: 2, 3, 4 en vez de 1, 2, 3).
+        restantes = FilaBase.objects.filter(estado='EN_ESPERA').order_by('fecha_ingreso')
+        for nueva_posicion, fila in enumerate(restantes, start=1):
+            if fila.posicion != nueva_posicion:
+                fila.posicion = nueva_posicion
+                fila.save(update_fields=['posicion'])
+
         return Response(FilaBaseSerializer(entrada).data)
 
 
