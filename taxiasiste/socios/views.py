@@ -1,3 +1,4 @@
+from django.db.models import Sum
 from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -31,6 +32,53 @@ class SocioViewSet(ModelViewSet):
         socio = self.get_object()
         qs = Bloqueo.objects.filter(socio=socio, activo=1)
         return Response(BloqueoSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=['post'])
+    def bloquear_por_no_pago(self, request, pk=None):
+        """
+        Bloqueo manual inmediato por no pago (el Tesorero no necesita esperar
+        al cierre de periodo de los viernes). Si el socio ya tenia una cuota
+        PENDIENTE para el periodo indicado, la marca VENCIDO de una vez para
+        que sume al monto adeudado acumulado, igual que hace el cierre
+        automatico.
+        Body opcional: { periodo: 'YYYY-MM' } (default: mes actual)
+        """
+        from taxiasiste.utils.oracle_seq import nextval
+
+        socio = self.get_object()
+        hoy = timezone.now().date()
+        periodo_str = request.data.get('periodo') or hoy.strftime('%Y-%m')
+        anio, mes = periodo_str.split('-')
+
+        cuota_periodo = Cuota.objects.filter(socio=socio, periodo__year=anio, periodo__month=mes).first()
+        if cuota_periodo and cuota_periodo.estado_pago == 'PENDIENTE':
+            cuota_periodo.estado_pago = 'VENCIDO'
+            cuota_periodo.save(update_fields=['estado_pago'])
+
+        ya_bloqueado = Bloqueo.objects.filter(socio=socio, activo=1, tipo_bloqueo='CUOTA_VENCIDA').exists()
+        if not ya_bloqueado:
+            bloqueo = Bloqueo()
+            bloqueo.id_bloqueo = nextval('seq_bloqueos')
+            bloqueo.socio = socio
+            bloqueo.usuario_registra = request.user
+            bloqueo.motivo = f'Bloqueo manual por no pago — período {periodo_str}'
+            bloqueo.tipo_bloqueo = 'CUOTA_VENCIDA'
+            bloqueo.fecha_inicio = hoy
+            bloqueo.activo = 1
+            bloqueo.save()
+
+        socio.estado_socio = 'BLOQUEADO'
+        socio.save(update_fields=['estado_socio'])
+
+        monto_adeudado = Cuota.objects.filter(
+            socio=socio, estado_pago__in=['PENDIENTE', 'VENCIDO'],
+        ).aggregate(total=Sum('monto'))['total'] or 0
+
+        return Response({
+            'message': f'{socio} bloqueado por no pago.',
+            'estado_socio': socio.estado_socio,
+            'monto_adeudado': float(monto_adeudado),
+        })
 
 
 class CuotaViewSet(ModelViewSet):

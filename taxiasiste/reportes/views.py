@@ -129,13 +129,23 @@ def resumen_tesorero(request):
 
     # Cuotas vencidas (PENDIENTE/VENCIDO con fecha pasada) por socio
     hoy = timezone.now().date()
-    from django.db.models import Count
+    from django.db.models import Count, Sum
     vencidas_por_socio = {
         row['socio_id']: row['total']
         for row in Cuota.objects
             .filter(estado_pago__in=['PENDIENTE', 'VENCIDO'], fecha_vencimiento__lt=hoy)
             .values('socio_id')
             .annotate(total=Count('id_cuota'))
+    }
+
+    # Monto total adeudado (todas las cuotas sin pagar, vencidas o no) por socio —
+    # es acumulativo por diseño: cada periodo sin pagar es una fila CUOTA aparte.
+    adeudado_por_socio = {
+        row['socio_id']: float(row['total'] or 0)
+        for row in Cuota.objects
+            .filter(estado_pago__in=['PENDIENTE', 'VENCIDO'])
+            .values('socio_id')
+            .annotate(total=Sum('monto'))
     }
 
     detalle = []
@@ -154,6 +164,7 @@ def resumen_tesorero(request):
             'estado_pago':     cuota.estado_pago if cuota else 'SIN_CUOTA',
             'fecha_pago':      cuota.fecha_pago if cuota else None,
             'cuotas_vencidas': vencidas_por_socio.get(m.socio_id, 0),
+            'monto_adeudado': adeudado_por_socio.get(m.socio_id, 0),
         })
 
     cobrado_total  = sum(d['monto'] for d in detalle if d['estado_pago'] == 'PAGADO')
