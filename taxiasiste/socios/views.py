@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework.decorators import action
@@ -34,51 +36,48 @@ class SocioViewSet(ModelViewSet):
         return Response(BloqueoSerializer(qs, many=True).data)
 
     @action(detail=True, methods=['post'])
-    def bloquear_por_no_pago(self, request, pk=None):
+    def bloquear(self, request, pk=None):
         """
-        Bloqueo manual inmediato por no pago (el Tesorero no necesita esperar
-        al cierre de periodo de los viernes). Si el socio ya tenia una cuota
-        PENDIENTE para el periodo indicado, la marca VENCIDO de una vez para
-        que sume al monto adeudado acumulado, igual que hace el cierre
-        automatico.
-        Body opcional: { periodo: 'YYYY-MM' } (default: mes actual)
+        Bloqueo manual del socio por cualquier motivo administrativo
+        (disciplinario, u otro — no necesariamente por no pago).
+        Body: { motivo: str, tipo_bloqueo?: 'DISCIPLINARIO'|'MANUAL'|'OTRO' }
         """
         from taxiasiste.utils.oracle_seq import nextval
 
         socio = self.get_object()
+        motivo = (request.data.get('motivo') or '').strip() or 'Bloqueo manual'
+        tipo_bloqueo = request.data.get('tipo_bloqueo') or 'DISCIPLINARIO'
         hoy = timezone.now().date()
-        periodo_str = request.data.get('periodo') or hoy.strftime('%Y-%m')
-        anio, mes = periodo_str.split('-')
 
-        cuota_periodo = Cuota.objects.filter(socio=socio, periodo__year=anio, periodo__month=mes).first()
-        if cuota_periodo and cuota_periodo.estado_pago == 'PENDIENTE':
-            cuota_periodo.estado_pago = 'VENCIDO'
-            cuota_periodo.save(update_fields=['estado_pago'])
-
-        ya_bloqueado = Bloqueo.objects.filter(socio=socio, activo=1, tipo_bloqueo='CUOTA_VENCIDA').exists()
+        ya_bloqueado = Bloqueo.objects.filter(socio=socio, activo=1).exists()
         if not ya_bloqueado:
             bloqueo = Bloqueo()
             bloqueo.id_bloqueo = nextval('seq_bloqueos')
             bloqueo.socio = socio
             bloqueo.usuario_registra = request.user
-            bloqueo.motivo = f'Bloqueo manual por no pago — período {periodo_str}'
-            bloqueo.tipo_bloqueo = 'CUOTA_VENCIDA'
+            bloqueo.motivo = motivo
+            bloqueo.tipo_bloqueo = tipo_bloqueo
             bloqueo.fecha_inicio = hoy
             bloqueo.activo = 1
             bloqueo.save()
 
         socio.estado_socio = 'BLOQUEADO'
         socio.save(update_fields=['estado_socio'])
+        return Response({'message': f'{socio} bloqueado.', 'estado_socio': socio.estado_socio})
 
-        monto_adeudado = Cuota.objects.filter(
-            socio=socio, estado_pago__in=['PENDIENTE', 'VENCIDO'],
-        ).aggregate(total=Sum('monto'))['total'] or 0
-
-        return Response({
-            'message': f'{socio} bloqueado por no pago.',
-            'estado_socio': socio.estado_socio,
-            'monto_adeudado': float(monto_adeudado),
-        })
+    @action(detail=True, methods=['post'])
+    def desbloquear(self, request, pk=None):
+        """
+        Reactiva al socio directamente (sin exigir que pague cuotas primero).
+        Util para bloqueos manuales o heredados de datos de prueba que no
+        tienen ninguna cuota real asociada — pagar_atrasos no sirve ahi porque
+        no hay nada que pagar.
+        """
+        socio = self.get_object()
+        Bloqueo.objects.filter(socio=socio, activo=1).update(activo=0, fecha_fin=timezone.now().date())
+        socio.estado_socio = 'ACTIVO'
+        socio.save(update_fields=['estado_socio'])
+        return Response({'message': f'{socio} desbloqueado.', 'estado_socio': socio.estado_socio})
 
 
 class CuotaViewSet(ModelViewSet):
@@ -111,19 +110,53 @@ class TesoreriaMovimientoViewSet(ModelViewSet):
             'fecha':    timezone.now().date().isoformat(),
         })
 
+    @action(detail=False, methods=['get'])
+    def resumen_mensual(self, request):
+        """
+        Resumen de caja del mes, igual al calculo manual que se hacia en papel:
+        Caja mes anterior (todo lo acumulado antes del mes) + Ganancias del mes
+        (ingresos) - Gastos del mes (egresos) = Total caja al cierre del mes.
+        ?mes=YYYY-MM  (default: mes actual)
+        """
+        import calendar
+
+        mes_str = request.query_params.get('mes') or timezone.now().strftime('%Y-%m')
+        anio, mes = (int(x) for x in mes_str.split('-'))
+        primer_dia = date(anio, mes, 1)
+        ultimo_dia = date(anio, mes, calendar.monthrange(anio, mes)[1])
+
+        qs = TesoreriaMovimiento.objects.all()
+
+        anteriores = qs.filter(fecha__lt=primer_dia)
+        caja_anterior = (
+            (anteriores.filter(tipo='INGRESO').aggregate(t=Sum('monto'))['t'] or 0)
+            - (anteriores.filter(tipo='EGRESO').aggregate(t=Sum('monto'))['t'] or 0)
+        )
+
+        del_mes = qs.filter(fecha__gte=primer_dia, fecha__lte=ultimo_dia)
+        ingresos_mes = del_mes.filter(tipo='INGRESO').aggregate(t=Sum('monto'))['t'] or 0
+        egresos_mes = del_mes.filter(tipo='EGRESO').aggregate(t=Sum('monto'))['t'] or 0
+
+        return Response({
+            'mes':             mes_str,
+            'caja_anterior':   float(caja_anterior),
+            'ingresos_mes':    float(ingresos_mes),
+            'egresos_mes':     float(egresos_mes),
+            'total_caja':      float(caja_anterior) + float(ingresos_mes) - float(egresos_mes),
+        })
+
     @action(detail=False, methods=['post'])
     def pagar_movil(self, request):
         """
-        Registra el pago de cuota de un móvil para un período.
+        Registra el pago de cuota semanal de un móvil.
         Si la cuota no existe, la crea. Si ya existe, la marca como PAGADO.
-        Body: { id_socio, monto, periodo (YYYY-MM) }
+        Body: { id_socio, monto, periodo (YYYY-MM-DD — lunes de la semana) }
         """
         from taxiasiste.utils.oracle_seq import nextval
-        import datetime
 
         id_socio = request.data.get('id_socio')
         monto    = request.data.get('monto')
-        periodo_str = request.data.get('periodo')  # YYYY-MM
+        periodo_str = request.data.get('periodo')  # YYYY-MM-DD (lunes)
 
         if not id_socio or not monto or not periodo_str:
             return Response({'error': 'id_socio, monto y periodo son requeridos.'}, status=400)
@@ -133,16 +166,12 @@ class TesoreriaMovimientoViewSet(ModelViewSet):
         except Socio.DoesNotExist:
             return Response({'error': 'Socio no encontrado.'}, status=404)
 
-        anio, mes = periodo_str.split('-')
-        # Fecha de vencimiento: último día del mes
-        ultimo_dia = (datetime.date(int(anio), int(mes) % 12 + 1, 1) - datetime.timedelta(days=1)
-                      if int(mes) < 12
-                      else datetime.date(int(anio), 12, 31))
+        periodo_date = date.fromisoformat(periodo_str)
+        # Vencimiento: fin de esa semana (domingo)
+        vencimiento = periodo_date + timezone.timedelta(days=6)
 
-        # Buscar cuota existente para el período
         hoy = timezone.now().date()
-        periodo_date = datetime.date(int(anio), int(mes), 1)
-        cuota = Cuota.objects.filter(socio=socio, periodo__year=anio, periodo__month=mes).first()
+        cuota = Cuota.objects.filter(socio=socio, periodo=periodo_date).first()
 
         if not cuota:
             cuota = Cuota()
@@ -150,7 +179,7 @@ class TesoreriaMovimientoViewSet(ModelViewSet):
             cuota.socio            = socio
             cuota.periodo          = periodo_date
             cuota.monto            = monto
-            cuota.fecha_vencimiento = ultimo_dia
+            cuota.fecha_vencimiento = vencimiento
             cuota.estado_pago      = 'PENDIENTE'
             cuota.save()
 
