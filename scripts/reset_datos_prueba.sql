@@ -1,0 +1,60 @@
+-- ============================================================
+-- LIMPIEZA COMPLETA: borra todos los datos de negocio y reinicia
+-- las secuencias a 1. Dejar las tablas vacias, listas para
+-- volver a cargar con seed_datos_prueba.sql
+-- ============================================================
+
+-- 1) Borrar datos (orden de hijas -> padres, respeta FKs)
+DELETE FROM HISTORIAL_EVENTOS;
+DELETE FROM UBICACION_ACTUAL;
+DELETE FROM FILA_BASE;
+DELETE FROM SOLICITUDES;
+DELETE FROM PASAJEROS;
+DELETE FROM CUOTAS;
+DELETE FROM BLOQUEOS;
+DELETE FROM TESORERIA_MOVIMIENTOS;
+DELETE FROM MOVILES;
+DELETE FROM SOCIOS;
+DELETE FROM USUARIOS;
+DELETE FROM ROLES;
+
+COMMIT;
+
+-- 2) Reiniciar secuencias a 1
+DROP SEQUENCE seq_roles;
+CREATE SEQUENCE seq_roles START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_usuarios;
+CREATE SEQUENCE seq_usuarios START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_socios;
+CREATE SEQUENCE seq_socios START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_cuotas;
+CREATE SEQUENCE seq_cuotas START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_bloqueos;
+CREATE SEQUENCE seq_bloqueos START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_moviles;
+CREATE SEQUENCE seq_moviles START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_fila_base;
+CREATE SEQUENCE seq_fila_base START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_pasajeros;
+CREATE SEQUENCE seq_pasajeros START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_solicitudes;
+CREATE SEQUENCE seq_solicitudes START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_historial;
+CREATE SEQUENCE seq_historial START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_ubicaciones;
+CREATE SEQUENCE seq_ubicaciones START WITH 1 INCREMENT BY 1 NOCACHE;
+
+DROP SEQUENCE seq_tesoreria_mov;
+CREATE SEQUENCE seq_tesoreria_mov START WITH 1 INCREMENT BY 1 NOCACHE;
+
+EXIT;
