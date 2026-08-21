@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.hashers import check_password
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiExample, extend_schema
@@ -59,13 +61,19 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        # Sesion unica: este login invalida cualquier token emitido antes para
+        # esta cuenta (otro dispositivo/pestaña con la sesion vieja quedara
+        # con un 'sid' que ya no coincide y su token sera rechazado).
+        sesion_id = uuid.uuid4().hex
         usuario.ultimo_acceso = timezone.now()
-        usuario.save(update_fields=['ultimo_acceso'])
+        usuario.sesion_actual = sesion_id
+        usuario.save(update_fields=['ultimo_acceso', 'sesion_actual'])
 
         refresh = RefreshToken()
         refresh['user_id'] = usuario.id_usuario
         refresh['username'] = usuario.username
         refresh['rol'] = usuario.rol.nombre_rol
+        refresh['sid'] = sesion_id
 
         return Response({
             'access': str(refresh.access_token),

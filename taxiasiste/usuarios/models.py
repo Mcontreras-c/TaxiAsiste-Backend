@@ -51,6 +51,12 @@ class Usuario(models.Model):
     )
     fecha_creacion = models.DateField()
     ultimo_acceso = models.DateTimeField(blank=True, null=True)
+    sesion_actual = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        db_comment='ID de la sesion JWT activa. Un login nuevo la reemplaza e invalida la anterior.',
+    )
 
     class Meta:
         managed = False

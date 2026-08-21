@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -59,28 +59,28 @@ class FilaBaseViewSet(ModelViewSet):
     serializer_class = FilaBaseSerializer
 
     def get_queryset(self):
-        """
-        En el listado, por defecto muestra solo los EN_ESPERA (?todos=1 para el
-        historial completo). Las acciones sobre un registro puntual (retrieve,
-        llamar, retirar) buscan por id_fila en TODOS los estados — si no, un
-        movil en LLAMADO nunca se podria retirar porque ya no matchea el
-        filtro EN_ESPERA de la lista.
+        """Por defecto el LISTADO muestra solo los EN_ESPERA; con ?todos=1 muestra
+        el historial completo. Las acciones sobre un registro puntual (llamar,
+        retirar, retrieve) NO deben filtrarse por estado: si no, buscar una
+        entrada LLAMADO (que el listado sin ?todos=1 excluye) da 404 y la
+        accion nunca se aplica, dejando el registro pegado para siempre.
         """
         qs = FilaBase.objects.select_related('movil__socio').order_by('posicion')
         if self.action == 'list' and self.request.query_params.get('todos', '0') != '1':
             return qs.filter(estado='EN_ESPERA')
         return qs
 
-    def create(self, request, *args, **kwargs):
-        """Evita duplicados: un movil no puede tener dos entradas activas en la fila."""
-        movil_id = request.data.get('movil')
-        ya_en_fila = FilaBase.objects.filter(movil_id=movil_id, estado__in=['EN_ESPERA', 'LLAMADO']).first()
-        if ya_en_fila:
-            return Response(FilaBaseSerializer(ya_en_fila).data, status=status.HTTP_200_OK)
-        return super().create(request, *args, **kwargs)
-
     def perform_create(self, serializer):
-        """Asigna la posición automáticamente al ingresar a la fila."""
+        """Asigna la posición automáticamente al ingresar a la fila.
+
+        Un móvil no puede tener dos entradas activas a la vez (evita duplicados
+        por doble-tap o reintentos de red en 'Entrar a la fila').
+        """
+        movil = serializer.validated_data['movil']
+        ya_activo = FilaBase.objects.filter(movil=movil, estado__in=['EN_ESPERA', 'LLAMADO']).exists()
+        if ya_activo:
+            raise serializers.ValidationError({'detail': 'Este móvil ya está en la fila.'})
+
         ultima = (
             FilaBase.objects.filter(estado='EN_ESPERA')
             .order_by('-posicion')
@@ -105,7 +105,7 @@ class FilaBaseViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def retirar(self, request, pk=None):
-        """Móvil sale de la base → estado RETIRADO, y se recorre la posición del resto."""
+        """Móvil sale de la base → estado RETIRADO."""
         entrada = self.get_object()
         if entrada.estado not in ('EN_ESPERA', 'LLAMADO'):
             return Response(
@@ -115,15 +115,6 @@ class FilaBaseViewSet(ModelViewSet):
         entrada.estado = 'RETIRADO'
         entrada.fecha_salida = timezone.now()
         entrada.save(update_fields=['estado', 'fecha_salida'])
-
-        # Re-numera al resto de la fila (EN_ESPERA) por orden de llegada, para
-        # que no queden "huecos" en las posiciones (ej: 2, 3, 4 en vez de 1, 2, 3).
-        restantes = FilaBase.objects.filter(estado='EN_ESPERA').order_by('fecha_ingreso')
-        for nueva_posicion, fila in enumerate(restantes, start=1):
-            if fila.posicion != nueva_posicion:
-                fila.posicion = nueva_posicion
-                fila.save(update_fields=['posicion'])
-
         return Response(FilaBaseSerializer(entrada).data)
 
 

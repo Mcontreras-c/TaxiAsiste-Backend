@@ -82,9 +82,7 @@ EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1 THEN RAISE; END IF;
 END;
 /
 
--- ===================== SOCIOS (vinculados a sus usuarios conductores) =====================
--- Solo "conductor" queda vinculado a un usuario de login; los otros 2 socios son
--- solo "conductores de papel" (sin login propio), igual que en los datos originales.
+-- ===================== SOCIOS =====================
 BEGIN
   INSERT INTO SOCIOS (id_socio, id_usuario, rut, nombre, apellido, telefono, direccion, estado_socio, fecha_ingreso)
   SELECT seq_socios.NEXTVAL, id_usuario, '12345678-9', 'Juan', 'Perez', '912345678', 'Av. Principal 123', 'ACTIVO', SYSDATE
@@ -128,7 +126,7 @@ EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1 THEN RAISE; END IF;
 END;
 /
 
--- ===================== CUOTAS (para el socio conductor: pagada, vencida, pendiente) =====================
+-- ===================== CUOTAS =====================
 BEGIN
   INSERT INTO CUOTAS (id_cuota, id_socio, periodo, monto, estado_pago, fecha_vencimiento, fecha_pago)
   SELECT seq_cuotas.NEXTVAL, id_socio, DATE '2026-05-01', 50000, 'PAGADO', DATE '2026-05-31', DATE '2026-05-20'
@@ -172,7 +170,6 @@ END;
 /
 
 -- ===================== SOLICITUDES =====================
--- Una PENDIENTE (para probar "Aceptar solicitud" desde el conductor) y una COMPLETADA (historial)
 BEGIN
   INSERT INTO SOLICITUDES (id_solicitud, id_pasajero, id_movil, folio, origen, destino, fecha_hora, estado, canal_entrada)
   SELECT seq_solicitudes.NEXTVAL, p.id_pasajero, NULL, 'SOL-2026-SEED1', 'Los Pinos 789', 'Hospital Regional', SYSTIMESTAMP, 'PENDIENTE', 'TELEFONO'
