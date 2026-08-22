@@ -42,6 +42,28 @@ servidor solo escucha en `127.0.0.1` y ni el Frontend en otra red ni la app Mobi
 (emulador o celular fisico) pueden conectarse. Ver mas gotchas de entorno en
 `CONTEXTO.md`.
 
+## Tests
+
+```powershell
+# Una sola vez por maquina/instancia de Oracle:
+Get-Content scripts\setup_test_schema.sql | docker exec -i oracle-xe sqlplus -s system/oracle@XEPDB1
+$env:ORACLE_USER="taxiasiste_test"; $env:ORACLE_PASSWORD="TaxiAsiste_Test_2026"
+python scripts\_run_sql_script.py scripts\create_business_schema.sql
+python scripts\_run_sql_script.py scripts\upgrade_local_schema.sql
+python scripts\_run_sql_script.py scripts\add_sesion_unica.sql
+
+# Cada vez que quieras correr la suite:
+pytest
+```
+
+Los tests corren contra un esquema Oracle real y separado (`taxiasiste_test`,
+mismo contenedor Docker) en vez de contra un mock o una base sqlite — todos
+los modelos son `managed = False` (ver seccion Oracle mas abajo), asi que
+`manage.py test`/migrations no sirven para crear las tablas de negocio.
+`pytest.ini` + `conftest.py` apuntan a este esquema directamente sin que
+Django intente crear ni destruir nada en cada corrida. Detalle completo en
+los comentarios de `taxiasiste/settings_test.py`.
+
 ## Endpoints
 
 | Ruta | Descripcion |

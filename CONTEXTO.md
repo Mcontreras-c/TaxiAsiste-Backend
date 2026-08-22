@@ -86,8 +86,30 @@
 - Frontend web — code-splitting: las paginas (menos Login) se cargan con `React.lazy` +
   `Suspense` en `App.tsx`. Bajó el chunk mas pesado de 1.28MB a ~380KB (Leaflet ya no
   se descarga si el usuario nunca visita Solicitudes/mapa)
-- Pendiente real: push remoto (requiere Firebase), tests automatizados, CI,
-  staging/produccion, mapa dentro de la app en tiempo real via push (hoy es polling)
+- Pendiente real: push remoto (requiere Firebase), CI, staging/produccion,
+  mapa dentro de la app en tiempo real via push (hoy es polling)
+
+## Tests automatizados (Backend)
+- pytest + pytest-django, contra un esquema Oracle real y separado
+  (`taxiasiste_test`, mismo contenedor Docker) — NO contra sqlite ni mocks.
+  Necesario porque managed=False en todos los modelos hace que
+  `manage.py test`/migrations no puedan crear las tablas de negocio por si
+  solos. Ver seccion "Tests" del README del Backend para el setup una vez
+  por maquina y `taxiasiste/settings_test.py` para el detalle tecnico
+- Cobertura inicial: login + sesion unica, transiciones de estado de
+  SOLICITUDES, fila virtual (posicion automatica, anti-duplicado, llamar/
+  retirar), permisos de MOVILES por rol, filtro de 45s de UBICACION_ACTUAL
+- **Bug real encontrado y arreglado al escribir estos tests**: todas las PK
+  son FloatField (Oracle NUMBER sin escala fija) y se serializan en JSON
+  como `4.0`, no `4`. El router de DRF por defecto excluye el punto de la
+  URL de un recurso (para distinguirlo de un sufijo `.json`), asi que
+  cualquier accion de detalle armada con un ID que vino de una respuesta
+  JSON previa (el caso normal, ej. `salirDeFila()` en el Mobile) devolvia
+  404 en vez de encontrar el registro. Se agrego
+  `taxiasiste/utils/routers.py` (`DecimalPkRouter`) usado ahora en los 5
+  `urls.py` de la app — antes de este fix, "Salir de la fila" y los botones
+  Llamar/Retirar del Paletero estaban rotos en produccion
+- Frontend y Mobile todavia no tienen tests automatizados (pendiente)
 
 ## Roles del sistema (tabla ROLES)
 - Administrador, Central, Tesorero, Conductor — manejados desde el Frontend web
