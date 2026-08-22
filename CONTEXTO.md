@@ -50,11 +50,44 @@
 - Estados de SOLICITUDES: PENDIENTE → ASIGNADO → ACEPTADO
   → EN_CURSO → COMPLETADO / CANCELADO / REASIGNANDO
 
-## Estado actual (actualizado 2026-07-24)
+## Estado actual (actualizado 2026-08-22)
 - Los 3 repos existen y estan funcionando de punta a punta:
   Backend (Django+Oracle), Frontend web (React+Vite+TS), Mobile (React Native+Expo)
 - models.py, serializers.py y views.py de las 10 tablas ya estan escritos y probados
 - La seccion "SQL del esquema" mas abajo sigue vigente como referencia de columnas y tipos
+- FASE 1 (mapa de despacho, geocoding/rutas, polling, permisos por rol, Location Gate mobile)
+  100% completada. FASE 2 en progreso — ver seccion "GPS, mapa del conductor y notificaciones"
+  mas abajo para lo agregado despues de FASE 1
+
+## GPS, mapa del conductor y notificaciones (FASE 2)
+- Arquitectura de posicion: 100% REST + Polling, sin WebSockets/Channels (se probo y se
+  descarto — respaldo en branch `dev-dortiiz-backup-*` del repo Mobile). Tabla
+  UBICACION_ACTUAL (1:1 con MOVILES); `/api/ubicaciones/` filtra solo moviles que
+  reportaron en los ultimos `SEGUNDOS_ONLINE=45` (moviles/views.py)
+- Sesion unica por login: columna USUARIOS.sesion_actual + claim `sid` en el JWT — un
+  login nuevo invalida el token de cualquier sesion anterior (401 "Sesion cerrada: se
+  inicio sesion en otro dispositivo")
+- Mobile — Conductor ahora tiene 4 tabs (antes 3): Fila Virtual, Solicitudes, Servicio
+  Actual y **Mapa** (nueva, WebView + Leaflet/CARTO, mismo look que el mapa de Central;
+  ve su propio movil centrado + otros moviles en linea, sin necesitar Google Maps API key)
+- Mobile — rastreo en segundo plano: `expo-task-manager` + `startLocationUpdatesAsync`
+  (foreground+background unificado), corre cada ~12s incluso con la app cerrada
+  (foreground service de Android)
+- Mobile — notificaciones: LOCALES unicamente (sin FCM/push remoto — no hay proyecto
+  Firebase todavia). Se disparan desde la misma tarea de background de arriba: "te
+  llamaron de la base", "viaje asignado" y "sesion cerrada en otro dispositivo". Si en
+  el futuro se arma push remoto real, hace falta Firebase Cloud Messaging + credenciales
+  en `eas credentials` (decision pendiente, no tomada)
+- Mobile — boton EMERGENCIA: llama a Carabineros (133, antes tenia un bug que llamaba a
+  Central). Se probo y DESCARTO una llamada 100% automatica via modulo nativo
+  (`Intent.ACTION_CALL`): MIUI/Xiaomi (y probablemente otros fabricantes) la bloquean en
+  silencio sin excepcion. Decision final: cuenta regresiva de 3s y despues abre el
+  marcador (`Linking.openURL('tel:133')`), el conductor da el ultimo toque
+- Frontend web — code-splitting: las paginas (menos Login) se cargan con `React.lazy` +
+  `Suspense` en `App.tsx`. Bajó el chunk mas pesado de 1.28MB a ~380KB (Leaflet ya no
+  se descarga si el usuario nunca visita Solicitudes/mapa)
+- Pendiente real: push remoto (requiere Firebase), tests automatizados, CI,
+  staging/produccion, mapa dentro de la app en tiempo real via push (hoy es polling)
 
 ## Roles del sistema (tabla ROLES)
 - Administrador, Central, Tesorero, Conductor — manejados desde el Frontend web

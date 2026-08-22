@@ -10,7 +10,7 @@ API REST en Django 6.x con Oracle, JWT y documentacion Swagger.
 ## Configuracion rapida
 
 ```powershell
-cd C:\Users\maira\OneDrive\Documentos\GitHub\TaxiAsiste-Backend
+cd TaxiAsiste-Backend
 
 # 1. Entorno virtual
 python -m venv venv
@@ -22,20 +22,25 @@ copy .env.example .env
 # Editar .env: ORACLE_PORT debe coincidir con el mapeo Docker (ej. 1523)
 
 # 3. Usuario Oracle (solo la primera vez)
-Get-Content scripts\setup_oracle_user.sql | docker exec -i oracle-xe_21slim sqlplus -s system/oracle@XEPDB1
+Get-Content scripts\setup_oracle_user.sql | docker exec -i oracle-xe sqlplus -s system/oracle@XEPDB1
 
 # 4. Esquema de negocio (instalacion nueva o parche local)
-Get-Content scripts\create_business_schema.sql | docker exec -i oracle-xe_21slim sqlplus -s taxiasiste_app/TaxiAsiste_App_2026@XEPDB1
+Get-Content scripts\create_business_schema.sql | docker exec -i oracle-xe sqlplus -s taxiasiste_app/TaxiAsiste_App_2026@XEPDB1
 # Si migraste desde otro PC y solo falta FILA_BASE:
-Get-Content scripts\upgrade_local_schema.sql | docker exec -i oracle-xe_21slim sqlplus -s taxiasiste_app/TaxiAsiste_App_2026@XEPDB1
+Get-Content scripts\upgrade_local_schema.sql | docker exec -i oracle-xe sqlplus -s taxiasiste_app/TaxiAsiste_App_2026@XEPDB1
 
 # 5. Tablas internas de Django
 python manage.py migrate
 
 # 6. Verificar
 python manage.py check
-python manage.py runserver
+python manage.py runserver 0.0.0.0:8000
 ```
+
+**Importante:** siempre con `0.0.0.0:8000`, nunca `runserver` a secas — sin eso el
+servidor solo escucha en `127.0.0.1` y ni el Frontend en otra red ni la app Mobile
+(emulador o celular fisico) pueden conectarse. Ver mas gotchas de entorno en
+`CONTEXTO.md`.
 
 ## Endpoints
 
@@ -56,9 +61,9 @@ El proyecto soporta dos modos de conexion via `.env`:
 Contenedor Docker usado en este equipo:
 
 ```powershell
-docker run -d --name oracle-xe_21slim -p 1523:1521 -p 5500:5500 -e ORACLE_PASSWORD=oracle gvenzl/oracle-xe:21-slim
+docker run -d --name oracle-xe -p 1523:1521 -p 5500:5500 -e ORACLE_PASSWORD=oracle gvenzl/oracle-xe:21-slim
 ```
 
-En este equipo el contenedor activo es `oracle-xe_21slim` y Oracle escucha en el puerto host **1523**.
+En este equipo el contenedor activo es `oracle-xe` y Oracle escucha en el puerto host **1523**.
 
 Credenciales por defecto del contenedor: `system/oracle` en el PDB `XEPDB1`.
