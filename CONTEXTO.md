@@ -109,7 +109,8 @@
   `taxiasiste/utils/routers.py` (`DecimalPkRouter`) usado ahora en los 5
   `urls.py` de la app — antes de este fix, "Salir de la fila" y los botones
   Llamar/Retirar del Paletero estaban rotos en produccion
-- Frontend y Mobile todavia no tienen tests automatizados (pendiente)
+- Frontend y Mobile YA tienen tests automatizados (Vitest+RTL / Jest+jest-expo)
+  y CI en los 3 repos (GitHub Actions, verificado corriendo en verde)
 
 ## PENDIENTE — a consultar con el grupo
 - **Falta el script SQL de TESORERIA_MOVIMIENTOS**: la tabla (y su secuencia
@@ -124,6 +125,41 @@
   levante Oracle en otra maquina) se va a quedar sin Tesoreria funcionando.
   Falta decidir en equipo: escribir el script faltante (documentando la
   definicion real que ya existe en dev) y quien se encarga
+
+- **JWT sin refresh automatico**: existe `/api/token/refresh/` pero ni el
+  Frontend ni el Mobile lo consumen — cuando el access token vence (8h,
+  SIMPLE_JWT.ACCESS_TOKEN_LIFETIME) el usuario queda deslogueado de golpe
+  (el interceptor de axios trata cualquier 401 como sesion expirada) en vez
+  de renovarse en silencio con el refresh token (valido 1 dia)
+
+- **Sin blacklist de tokens JWT**: `rest_framework_simplejwt.token_blacklist`
+  no esta instalado. Al hacer logout o al invalidar por sesion-unica, el
+  access token viejo sigue siendo criptograficamente valido hasta que
+  vence solo — el unico freno real hoy es el chequeo de `sesion_actual` en
+  `UsuarioJWTAuthentication`, que depende de esa consulta a USUARIOS
+
+- **HISTORIAL_EVENTOS nunca se escribe**: la tabla, el modelo, el
+  serializer y el endpoint de solo lectura (`/api/historial/`) existen,
+  pero no hay un solo `.objects.create()` de HistorialEvento en ningun
+  view del proyecto — es una tabla de auditoria que hoy esta siempre
+  vacia. Hay que decidir: implementar el registro real (que accion en
+  moviles/solicitudes/fila-base/etc. dispara que evento) o sacar el
+  endpoint hasta que se implemente, para no ofrecer una funcionalidad que
+  no hace nada
+
+- **Sin paginacion en DRF**: ningun endpoint pagina resultados — hoy no se
+  nota porque los datos de prueba son pocos, pero escala mal apenas haya
+  meses de SOLICITUDES/HISTORIAL_EVENTOS reales en produccion
+
+- **`bloquear_morosos` sin scheduler**: el management command que bloquea
+  socios con cuota vencida existe (`socios/management/commands/`) pero nada
+  lo dispara automaticamente — hoy hay que correrlo a mano. Necesita un
+  cron/Celery beat, probablemente como parte de la conversacion de
+  staging/produccion
+
+- **Sin logging/monitoreo de errores en backend**: no hay Sentry ni logging
+  estructurado — un 500 en produccion hoy solo se ve si alguien esta
+  mirando la consola del server en el momento en que pasa
 
 ## Roles del sistema (tabla ROLES)
 - Administrador, Central, Tesorero, Conductor — manejados desde el Frontend web
