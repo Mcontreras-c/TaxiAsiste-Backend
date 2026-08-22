@@ -111,6 +111,20 @@
   Llamar/Retirar del Paletero estaban rotos en produccion
 - Frontend y Mobile todavia no tienen tests automatizados (pendiente)
 
+## PENDIENTE — a consultar con el grupo
+- **Falta el script SQL de TESORERIA_MOVIMIENTOS**: la tabla (y su secuencia
+  seq_tesoreria_mov) usada por TesoreriaMovimiento (socios/models.py) existe
+  en la base de datos de desarrollo y las pantallas Tesoreria/TesoreriaAdmin
+  del Frontend ya funcionan contra ella, pero NINGUN script versionado la
+  crea (ni create_business_schema.sql ni upgrade_local_schema.sql) — solo
+  aparece referenciada en reset_datos_prueba.sql y verificar_datos.sql. Esto
+  salio a la luz al armar desde cero el esquema Oracle de test
+  (taxiasiste_test) siguiendo exactamente los scripts documentados: la tabla
+  simplemente no aparece. Cualquiera que instale el proyecto de cero (o
+  levante Oracle en otra maquina) se va a quedar sin Tesoreria funcionando.
+  Falta decidir en equipo: escribir el script faltante (documentando la
+  definicion real que ya existe en dev) y quien se encarga
+
 ## Roles del sistema (tabla ROLES)
 - Administrador, Central, Tesorero, Conductor — manejados desde el Frontend web
 - Paletero — SOLO existe en la app Mobile (no tiene pantallas en el frontend web).
