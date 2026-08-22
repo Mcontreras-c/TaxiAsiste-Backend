@@ -83,6 +83,16 @@
   (`Intent.ACTION_CALL`): MIUI/Xiaomi (y probablemente otros fabricantes) la bloquean en
   silencio sin excepcion. Decision final: cuenta regresiva de 3s y despues abre el
   marcador (`Linking.openURL('tel:133')`), el conductor da el ultimo toque
+- Mobile — navegacion al punto de recogida/destino: la app NO intenta
+  reemplazar la navegacion turn-by-turn (Waze/Google Maps ya lo hacen mejor
+  y el conductor ya las conoce). En su lugar: (1) boton "Navegar" en
+  Servicio Actual que abre Waze o Google Maps con la direccion en texto tal
+  cual (sin geocoding propio, para no sumar un punto de falla a algo que el
+  destino resuelve solo), y (2) en la pantalla Mapa, un pin + la ruta
+  trazada (reusa `/api/geocodificar/` y `/api/ruta/`, los mismos que ya usa
+  el Frontend web) desde la posicion del conductor hasta el punto relevante
+  — solo informativo, se recalcula al cambiar de viaje/estado, no en cada
+  tick del polling de posicion
 - Frontend web — code-splitting: las paginas (menos Login) se cargan con `React.lazy` +
   `Suspense` en `App.tsx`. Bajó el chunk mas pesado de 1.28MB a ~380KB (Leaflet ya no
   se descarga si el usuario nunca visita Solicitudes/mapa)
