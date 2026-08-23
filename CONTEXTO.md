@@ -93,6 +93,13 @@
   el Frontend web) desde la posicion del conductor hasta el punto relevante
   — solo informativo, se recalcula al cambiar de viaje/estado, no en cada
   tick del polling de posicion
+- Mobile — Servicio Actual rediseñado, estilo apps de viajes (Uber/DiDi):
+  mapa a pantalla completa de fondo (ruta al punto de recogida/destino,
+  sin la flota completa — decluttered) con la tarjeta del pasajero y los
+  botones de accion flotando encima, en vez de la lista de texto anterior.
+  El mapa se extrajo a `components/MapaConRuta.tsx`, compartido con la
+  pantalla Mapa (que sigue mostrando la flota completa via el prop
+  `mostrarFlota`) para no duplicar la logica de WebView/polling/ruta
 - Frontend web — code-splitting: las paginas (menos Login) se cargan con `React.lazy` +
   `Suspense` en `App.tsx`. Bajó el chunk mas pesado de 1.28MB a ~380KB (Leaflet ya no
   se descarga si el usuario nunca visita Solicitudes/mapa)
