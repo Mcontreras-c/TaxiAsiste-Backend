@@ -211,6 +211,24 @@ y Mobile: `refreshToken()`/`refrescarToken()` ahora guardan el campo
 se revierte esta decision mas adelante). Tests actualizados para reflejar
 reuso permitido en vez de rotacion.
 
+**Actualizacion — el revert de arriba NO era la causa completa**: tras
+revertir y hacer logout+login en el celular, el conductor seguia
+desapareciendo del mapa al rato de dejar la app en segundo plano. Se
+confirmo con el usuario real: pasaba especificamente al cerrar la
+notificacion persistente "Compartiendo tu ubicacion..." a mano, o al
+deslizar la app fuera de "Recientes" — eso es Android terminando el
+servicio en primer plano por diseno, no un bug de la app (cualquier app
+con tracking en background tiene esta limitacion). Se agrego
+`killServiceOnDestroy: false` explicito en la config de
+`useTrackingUbicacion.ts` (Mobile) y un aviso de una sola vez al
+conductor explicando que no debe cerrar esa notificacion, y que en
+fabricantes con ahorro de bateria agresivo (Xiaomi/MIUI confirmado en el
+dispositivo de prueba real, tambien Huawei/OnePlus — ver
+dontkillmyapp.com) tiene que habilitar "Inicio automatico" + "Sin
+restricciones" a mano en Ajustes. Esto es una limitacion de plataforma,
+no algo resoluble 100% con codigo — ver seccion "Problemas comunes" del
+README del Mobile.
+
 ## PENDIENTE — a consultar con el grupo
 - **Falta el script SQL de TESORERIA_MOVIMIENTOS**: la tabla (y su secuencia
   seq_tesoreria_mov) usada por TesoreriaMovimiento (socios/models.py) existe
