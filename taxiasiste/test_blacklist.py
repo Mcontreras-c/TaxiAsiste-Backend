@@ -2,33 +2,22 @@ import pytest
 
 
 @pytest.mark.django_db
-def test_refresh_rota_y_devuelve_un_refresh_nuevo(api_client, crear_usuario):
-    crear_usuario('conductorRot', password='Clave123!')
-    login = api_client.post('/api/login/', {'username': 'conductorRot', 'password': 'Clave123!'})
-    refresh_viejo = login.data['refresh']
-
-    resp = api_client.post('/api/token/refresh/', {'refresh': refresh_viejo})
-
-    assert resp.status_code == 200
-    assert 'access' in resp.data
-    assert 'refresh' in resp.data
-    assert resp.data['refresh'] != refresh_viejo
-
-
-@pytest.mark.django_db
-def test_refresh_usado_no_sirve_una_segunda_vez(api_client, crear_usuario):
-    """ROTATE_REFRESH_TOKENS + BLACKLIST_AFTER_ROTATION: el refresh token
-    queda en blacklist apenas se usa una vez -- si alguien lo intercepta y
-    ya se uso, no le sirve."""
+def test_refresh_no_rota_y_se_puede_reusar(api_client, crear_usuario):
+    """ROTATE_REFRESH_TOKENS se probo y se descarto (ver settings.py):
+    con varios pollers concurrentes compartiendo el mismo refresh token,
+    rotarlo en cada uso rompia el GPS en background cada vez que dos
+    pollers refrescaban casi al mismo tiempo. El mismo refresh token tiene
+    que poder reusarse durante toda su vida util."""
     crear_usuario('conductorReuso', password='Clave123!')
     login = api_client.post('/api/login/', {'username': 'conductorReuso', 'password': 'Clave123!'})
-    refresh_original = login.data['refresh']
+    refresh = login.data['refresh']
 
-    primero = api_client.post('/api/token/refresh/', {'refresh': refresh_original})
-    segundo = api_client.post('/api/token/refresh/', {'refresh': refresh_original})
+    primero = api_client.post('/api/token/refresh/', {'refresh': refresh})
+    segundo = api_client.post('/api/token/refresh/', {'refresh': refresh})
 
     assert primero.status_code == 200
-    assert segundo.status_code == 401
+    assert segundo.status_code == 200
+    assert 'refresh' not in primero.data
 
 
 @pytest.mark.django_db

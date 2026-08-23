@@ -167,26 +167,49 @@
 - Frontend y Mobile YA tienen tests automatizados (Vitest+RTL / Jest+jest-expo)
   y CI en los 3 repos (GitHub Actions, verificado corriendo en verde)
 
-## JWT: refresh tokens rotativos + blacklist + logout real
+## JWT: blacklist + logout real (SIN rotacion — ver incidente abajo)
 - `rest_framework_simplejwt.token_blacklist` instalado y migrado (esquemas
-  dev y test). `SIMPLE_JWT.ROTATE_REFRESH_TOKENS=True` +
-  `BLACKLIST_AFTER_ROTATION=True`: cada refresh consume el refresh token
-  usado (queda en blacklist) y entrega uno nuevo — un refresh token
-  robado/filtrado deja de servir apenas se usa una vez, no sigue valido
-  hasta el dia entero. Frontend y Mobile actualizados para guardar el
-  refresh token nuevo que ahora devuelve `/api/token/refresh/` (antes solo
-  guardaban el access) — sin este cambio, el SEGUNDO refresh de cada sesion
-  hubiera fallado (el primero deja el token viejo en blacklist)
+  dev y test)
 - Nuevo endpoint `POST /api/logout/` (`{refresh}` -> invalida ese token de
   inmediato): antes un logout solo borraba el token del dispositivo, el
   refresh seguia siendo valido en el backend hasta por 1 dia. Frontend y
   Mobile lo llaman best-effort (fire-and-forget) al cerrar sesion, sin
   bloquear el logout local si falla la red
 - Cubierto con tests: `taxiasiste/test_blacklist.py` (backend, 5 tests
-  contra Oracle real: rotacion, reuso de un refresh ya usado, logout
-  invalida de inmediato, logout sin refresh, logout con token invalido no
-  revienta) + `src/api/auth.test.ts` (Frontend, 3 tests del logout
-  best-effort) + mocks actualizados en `client.test.ts` de ambos repos
+  contra Oracle real) + `src/api/auth.test.ts` (Frontend, 3 tests del
+  logout best-effort) + mocks en `client.test.ts` de ambos repos
+
+### INCIDENTE — ROTATE_REFRESH_TOKENS probado y descartado (2026-08-23)
+Se activo brevemente `SIMPLE_JWT.ROTATE_REFRESH_TOKENS` +
+`BLACKLIST_AFTER_ROTATION` (cada refresh consume el token usado y entrega
+uno nuevo). **Causo una regresion real en produccion**: el GPS del
+conductor dejaba de actualizarse "despues de un rato", tanto en el mapa
+web de Central como en el propio celular del conductor — solo un
+logout+login lo arreglaba.
+
+Causa raiz: la app Mobile tiene varios pollers concurrentes que comparten
+el mismo refresh token guardado (fila-base, solicitudes, notificaciones,
+la tarea de ubicacion en background). Cuando el access token de 8h vence,
+todos pueden pisar un 401 casi al mismo tiempo. El interceptor de axios
+dedupea refrescos concurrentes DENTRO de un mismo contexto JS, pero la
+tarea de ubicacion en background puede correr en un contexto headless
+separado del de la app en primer plano (TaskManager en Android) — dos
+refrescos casi simultaneos desde contextos distintos podian leer el MISMO
+refresh token de AsyncStorage antes de que ninguno terminara de escribir
+el nuevo. El backend, con rotacion activada, invalida (blacklist) el
+token usado en cuanto el primero lo consume — el segundo intento, con ese
+mismo token ya en blacklist, fallaba con 401 de forma permanente hasta el
+proximo login manual, matando ese poller (incluido el de ubicacion) en
+silencio.
+
+Se revirtio: el refresh token vuelve a ser reusable durante toda su vida
+util (1 dia), sin rotacion. El blacklist en si se mantiene activo (sigue
+siendo util) pero solo se dispara en el logout explicito — una accion
+unica y deliberada, sin la concurrencia que causaba la carrera. Frontend
+y Mobile: `refreshToken()`/`refrescarToken()` ahora guardan el campo
+`refresh` de la respuesta solo si viene presente (defensivo, no rompe si
+se revierte esta decision mas adelante). Tests actualizados para reflejar
+reuso permitido en vez de rotacion.
 
 ## PENDIENTE — a consultar con el grupo
 - **Falta el script SQL de TESORERIA_MOVIMIENTOS**: la tabla (y su secuencia
