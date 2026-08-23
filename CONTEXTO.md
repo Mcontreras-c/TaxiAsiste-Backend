@@ -99,6 +99,26 @@
 - Pendiente real: push remoto (requiere Firebase), CI, staging/produccion,
   mapa dentro de la app en tiempo real via push (hoy es polling)
 
+## MOVILES.estado_operativo: EN_SERVICIO automatico
+- El valor EN_SERVICIO existia en el modelo/DB desde el diseño original
+  pero nunca se asignaba en ningun lado del codigo — era logica muerta
+  (moviles_en_servicio en el dashboard siempre daba 0). Ahora
+  `SolicitudViewSet.cambiar_estado` (solicitudes/views.py) lo conecta al
+  ciclo de vida real de una solicitud:
+  - PENDIENTE→ASIGNADO→**EN_CURSO**: el movil pasa a EN_SERVICIO (solo si
+    estaba DISPONIBLE — no pisa un BLOQUEADO/INACTIVO puesto a mano)
+  - EN_CURSO→COMPLETADO/CANCELADO: vuelve a DISPONIBLE (solo si el estado
+    actual es justo EN_SERVICIO — no reactiva un movil que Central
+    desconecto/bloqueo mientras el viaje seguia en curso)
+  - Cancelar ANTES de EN_CURSO (desde ASIGNADO) no toca el movil: nunca
+    paso a EN_SERVICIO, nada que revertir
+  - El mapa de Central ya pintaba EN_SERVICIO de azul (COLOR_ESTADO en
+    MapaDespacho.tsx) — cero cambios de Frontend, el color cambia solo en
+    el proximo poll de /api/moviles/ (cada 5s) apenas el backend lo marca
+  - Cubierto con 5 tests nuevos en test_transiciones.py contra Oracle real,
+    mas verificado a mano contra el backend de desarrollo (DISPONIBLE ->
+    EN_SERVICIO -> DISPONIBLE via curl, ciclo completo)
+
 ## Tests automatizados (Backend)
 - pytest + pytest-django, contra un esquema Oracle real y separado
   (`taxiasiste_test`, mismo contenedor Docker) — NO contra sqlite ni mocks.

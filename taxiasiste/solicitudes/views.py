@@ -96,10 +96,24 @@ class SolicitudViewSet(ModelViewSet):
         if nuevo_estado == 'EN_CURSO':
             solicitud.fecha_inicio = ahora
             update_fields.append('fecha_inicio')
+            # El pasajero ya esta a bordo -> el movil pasa a EN_SERVICIO
+            # (el mapa de Central ya lo pinta azul via COLOR_ESTADO, sin
+            # cambios en el Frontend). Solo si estaba DISPONIBLE: no pisa un
+            # BLOQUEADO/INACTIVO puesto a mano por Central/Admin.
+            if solicitud.movil and solicitud.movil.estado_operativo == 'DISPONIBLE':
+                solicitud.movil.estado_operativo = 'EN_SERVICIO'
+                solicitud.movil.save(update_fields=['estado_operativo'])
 
         if nuevo_estado in ('COMPLETADO', 'CANCELADO'):
             solicitud.fecha_termino = ahora
             update_fields.append('fecha_termino')
+            # Simetrico al bloque de arriba: el viaje termino -> vuelve a
+            # DISPONIBLE, pero solo si el estado actual es justo el que este
+            # mismo flujo puso (EN_SERVICIO) -- evita reactivar un movil que
+            # Central desconecto/bloqueo mientras el viaje estaba en curso.
+            if solicitud.movil and solicitud.movil.estado_operativo == 'EN_SERVICIO':
+                solicitud.movil.estado_operativo = 'DISPONIBLE'
+                solicitud.movil.save(update_fields=['estado_operativo'])
 
         observacion = request.data.get('observacion')
         if observacion:
