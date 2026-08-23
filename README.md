@@ -51,6 +51,7 @@ $env:ORACLE_USER="taxiasiste_test"; $env:ORACLE_PASSWORD="TaxiAsiste_Test_2026"
 python scripts\_run_sql_script.py scripts\create_business_schema.sql
 python scripts\_run_sql_script.py scripts\upgrade_local_schema.sql
 python scripts\_run_sql_script.py scripts\add_sesion_unica.sql
+$env:DJANGO_SETTINGS_MODULE="taxiasiste.settings_test"; python manage.py migrate
 
 # Cada vez que quieras correr la suite:
 pytest
@@ -58,11 +59,14 @@ pytest
 
 Los tests corren contra un esquema Oracle real y separado (`taxiasiste_test`,
 mismo contenedor Docker) en vez de contra un mock o una base sqlite — todos
-los modelos son `managed = False` (ver seccion Oracle mas abajo), asi que
-`manage.py test`/migrations no sirven para crear las tablas de negocio.
-`pytest.ini` + `conftest.py` apuntan a este esquema directamente sin que
-Django intente crear ni destruir nada en cada corrida. Detalle completo en
-los comentarios de `taxiasiste/settings_test.py`.
+los modelos de negocio son `managed = False` (ver seccion Oracle mas abajo),
+asi que `manage.py test`/migrations no sirven para crear esas tablas por si
+solas. `pytest.ini` + `conftest.py` apuntan a este esquema directamente sin
+que Django intente crear ni destruir nada en cada corrida. El `manage.py
+migrate` de arriba SI hace falta una vez, aparte: crea las tablas propias de
+Django que si son managed=True (auth, sessions, y `token_blacklist` para el
+refresh JWT). Detalle completo en los comentarios de
+`taxiasiste/settings_test.py`.
 
 ## Endpoints
 

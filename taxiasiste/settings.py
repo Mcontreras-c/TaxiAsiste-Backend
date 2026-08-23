@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'drf_spectacular',
     'taxiasiste.usuarios',
@@ -125,6 +126,11 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    # Cada refresh consume el refresh token usado (queda en blacklist) y
+    # entrega uno nuevo -- un refresh token robado/filtrado deja de servir
+    # apenas se usa una vez, en vez de seguir valido hasta el dia entero.
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
 SPECTACULAR_SETTINGS = {

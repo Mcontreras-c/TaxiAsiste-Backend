@@ -64,5 +64,10 @@ jobs:
           python scripts/_run_sql_script.py scripts/upgrade_local_schema.sql
           python scripts/_run_sql_script.py scripts/add_sesion_unica.sql
 
+      - name: Migrar tablas de Django (token_blacklist y demas apps managed=True)
+        env:
+          DJANGO_SETTINGS_MODULE: taxiasiste.settings_test
+        run: python manage.py migrate --no-input
+
       - name: Correr tests
         run: pytest

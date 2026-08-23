@@ -140,6 +140,27 @@
 - Frontend y Mobile YA tienen tests automatizados (Vitest+RTL / Jest+jest-expo)
   y CI en los 3 repos (GitHub Actions, verificado corriendo en verde)
 
+## JWT: refresh tokens rotativos + blacklist + logout real
+- `rest_framework_simplejwt.token_blacklist` instalado y migrado (esquemas
+  dev y test). `SIMPLE_JWT.ROTATE_REFRESH_TOKENS=True` +
+  `BLACKLIST_AFTER_ROTATION=True`: cada refresh consume el refresh token
+  usado (queda en blacklist) y entrega uno nuevo — un refresh token
+  robado/filtrado deja de servir apenas se usa una vez, no sigue valido
+  hasta el dia entero. Frontend y Mobile actualizados para guardar el
+  refresh token nuevo que ahora devuelve `/api/token/refresh/` (antes solo
+  guardaban el access) — sin este cambio, el SEGUNDO refresh de cada sesion
+  hubiera fallado (el primero deja el token viejo en blacklist)
+- Nuevo endpoint `POST /api/logout/` (`{refresh}` -> invalida ese token de
+  inmediato): antes un logout solo borraba el token del dispositivo, el
+  refresh seguia siendo valido en el backend hasta por 1 dia. Frontend y
+  Mobile lo llaman best-effort (fire-and-forget) al cerrar sesion, sin
+  bloquear el logout local si falla la red
+- Cubierto con tests: `taxiasiste/test_blacklist.py` (backend, 5 tests
+  contra Oracle real: rotacion, reuso de un refresh ya usado, logout
+  invalida de inmediato, logout sin refresh, logout con token invalido no
+  revienta) + `src/api/auth.test.ts` (Frontend, 3 tests del logout
+  best-effort) + mocks actualizados en `client.test.ts` de ambos repos
+
 ## PENDIENTE — a consultar con el grupo
 - **Falta el script SQL de TESORERIA_MOVIMIENTOS**: la tabla (y su secuencia
   seq_tesoreria_mov) usada por TesoreriaMovimiento (socios/models.py) existe
@@ -153,12 +174,6 @@
   levante Oracle en otra maquina) se va a quedar sin Tesoreria funcionando.
   Falta decidir en equipo: escribir el script faltante (documentando la
   definicion real que ya existe en dev) y quien se encarga
-
-- **Sin blacklist de tokens JWT**: `rest_framework_simplejwt.token_blacklist`
-  no esta instalado. Al hacer logout o al invalidar por sesion-unica, el
-  access token viejo sigue siendo criptograficamente valido hasta que
-  vence solo — el unico freno real hoy es el chequeo de `sesion_actual` en
-  `UsuarioJWTAuthentication`, que depende de esa consulta a USUARIOS
 
 - **HISTORIAL_EVENTOS nunca se escribe**: la tabla, el modelo, el
   serializer y el endpoint de solo lectura (`/api/historial/`) existen,
