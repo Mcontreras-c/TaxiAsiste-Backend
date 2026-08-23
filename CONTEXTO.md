@@ -119,6 +119,24 @@
   `taxiasiste/utils/routers.py` (`DecimalPkRouter`) usado ahora en los 5
   `urls.py` de la app — antes de este fix, "Salir de la fila" y los botones
   Llamar/Retirar del Paletero estaban rotos en produccion
+
+## JWT: refresh automatico (Frontend + Mobile)
+- Ya no dependen solo de que el access token (8h) siga vigente: ambos
+  clientes axios ahora interceptan un 401, llaman a `/api/token/refresh/`
+  con el refresh token guardado (1 dia de vida), y reintentan la request
+  original una sola vez con el access token nuevo — sin backend nuevo,
+  simplejwt ya copia el claim `sid` del refresh al access nuevo (verificado
+  con curl contra el backend real: mismo `sid`, endpoint protegido responde
+  200 con el token refrescado)
+- Requests concurrentes que pisan un 401 al mismo tiempo (pollers en
+  paralelo) comparten una sola promesa de refresh en vuelo, no disparan
+  `/token/refresh/` por triplicado
+- Si el refresh token tambien esta vencido/invalido (o es la sesion-unica
+  la que lo rechaza), NO reintenta en loop — cae al logout normal
+  (`useAuthStore.logout()` en Frontend, `onSessionExpired()` en Mobile)
+- Cubierto con tests (`src/api/client.test.ts` en ambos repos) usando
+  `axios-mock-adapter`: refresh+reintento exitoso, sin refresh_token
+  guardado, refresh token invalido, y dedupe de refresh concurrente
 - Frontend y Mobile YA tienen tests automatizados (Vitest+RTL / Jest+jest-expo)
   y CI en los 3 repos (GitHub Actions, verificado corriendo en verde)
 
@@ -135,12 +153,6 @@
   levante Oracle en otra maquina) se va a quedar sin Tesoreria funcionando.
   Falta decidir en equipo: escribir el script faltante (documentando la
   definicion real que ya existe en dev) y quien se encarga
-
-- **JWT sin refresh automatico**: existe `/api/token/refresh/` pero ni el
-  Frontend ni el Mobile lo consumen — cuando el access token vence (8h,
-  SIMPLE_JWT.ACCESS_TOKEN_LIFETIME) el usuario queda deslogueado de golpe
-  (el interceptor de axios trata cualquier 401 como sesion expirada) en vez
-  de renovarse en silencio con el refresh token (valido 1 dia)
 
 - **Sin blacklist de tokens JWT**: `rest_framework_simplejwt.token_blacklist`
   no esta instalado. Al hacer logout o al invalidar por sesion-unica, el
