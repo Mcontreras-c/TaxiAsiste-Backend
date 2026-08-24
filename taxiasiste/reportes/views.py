@@ -103,15 +103,18 @@ def socios_bloqueados(request):
 @api_view(['GET'])
 def resumen_tesorero(request):
     """
-    Resumen financiero por período para el Tesorero.
-    ?periodo=YYYY-MM  (default: mes actual)
-    Devuelve todos los móviles activos con su estado de pago para el período.
+    Resumen financiero por semana para el Tesorero.
+    ?periodo=YYYY-MM-DD  (lunes de la semana; default: semana actual)
+    Devuelve todos los móviles activos con su estado de pago para esa semana.
     """
+    from datetime import date, timedelta
+
     from django.db.models import Sum
     from taxiasiste.moviles.models import Movil
 
-    periodo = request.query_params.get('periodo') or timezone.now().strftime('%Y-%m')
-    anio, mes = periodo.split('-')
+    hoy = timezone.now().date()
+    periodo_str = request.query_params.get('periodo') or (hoy - timedelta(days=hoy.weekday())).isoformat()
+    periodo_date = date.fromisoformat(periodo_str)
 
     # Todos los móviles con su socio (sin filtrar por estado)
     moviles = (
@@ -121,21 +124,31 @@ def resumen_tesorero(request):
         .order_by('socio__nombre')
     )
 
-    # Cuotas del período indexadas por socio
+    # Cuotas de la semana indexadas por socio
     cuotas_periodo = {
         c.socio_id: c
-        for c in Cuota.objects.filter(periodo__year=anio, periodo__month=mes)
+        for c in Cuota.objects.filter(periodo=periodo_date)
     }
 
     # Cuotas vencidas (PENDIENTE/VENCIDO con fecha pasada) por socio
     hoy = timezone.now().date()
-    from django.db.models import Count
+    from django.db.models import Count, Sum
     vencidas_por_socio = {
         row['socio_id']: row['total']
         for row in Cuota.objects
             .filter(estado_pago__in=['PENDIENTE', 'VENCIDO'], fecha_vencimiento__lt=hoy)
             .values('socio_id')
             .annotate(total=Count('id_cuota'))
+    }
+
+    # Monto total adeudado (todas las cuotas sin pagar, vencidas o no) por socio —
+    # es acumulativo por diseño: cada periodo sin pagar es una fila CUOTA aparte.
+    adeudado_por_socio = {
+        row['socio_id']: float(row['total'] or 0)
+        for row in Cuota.objects
+            .filter(estado_pago__in=['PENDIENTE', 'VENCIDO'])
+            .values('socio_id')
+            .annotate(total=Sum('monto'))
     }
 
     detalle = []
@@ -154,6 +167,7 @@ def resumen_tesorero(request):
             'estado_pago':     cuota.estado_pago if cuota else 'SIN_CUOTA',
             'fecha_pago':      cuota.fecha_pago if cuota else None,
             'cuotas_vencidas': vencidas_por_socio.get(m.socio_id, 0),
+            'monto_adeudado': adeudado_por_socio.get(m.socio_id, 0),
         })
 
     cobrado_total  = sum(d['monto'] for d in detalle if d['estado_pago'] == 'PAGADO')
@@ -161,13 +175,98 @@ def resumen_tesorero(request):
     pendientes     = len(detalle) - pagados
 
     return Response({
-        'periodo':         periodo,
+        'periodo':         periodo_str,
+        'semana_fin':      (periodo_date + timedelta(days=6)).isoformat(),
         'total_moviles':   len(detalle),
         'pagados':         pagados,
         'pendientes':      pendientes,
         'cobrado':         cobrado_total,
         'porcentaje':      round((pagados / len(detalle) * 100) if detalle else 0, 1),
         'detalle':         detalle,
+    })
+
+
+@api_view(['POST'])
+def cerrar_semana(request):
+    """
+    Cierra la semana de cobranza: las cuotas ya marcadas PAGADO quedan tal
+    cual (ese dinero ya se registró en tesorería al momento del pago); todos
+    los móviles/socios sin cuota PAGADO para esa semana quedan VENCIDO y su
+    socio se bloquea (bloqueo acumulativo — cada semana sin pago suma un
+    bloqueo/cuota nueva, igual que hace bloquear_por_no_pago).
+    Body: { periodo: 'YYYY-MM-DD' (lunes de la semana), tarifa: number }
+    """
+    from datetime import date, timedelta
+
+    from taxiasiste.socios.models import Bloqueo
+    from taxiasiste.moviles.models import Movil
+    from taxiasiste.utils.oracle_seq import nextval
+
+    periodo_str = request.data.get('periodo')
+    tarifa = request.data.get('tarifa')
+    if not periodo_str or not tarifa:
+        return Response({'error': 'periodo y tarifa son requeridos.'}, status=400)
+
+    periodo_date = date.fromisoformat(periodo_str)
+    vencimiento = periodo_date + timedelta(days=6)
+    hoy = timezone.now().date()
+
+    moviles = Movil.objects.exclude(estado_operativo='INACTIVO').select_related('socio')
+    cuotas_semana = {c.socio_id: c for c in Cuota.objects.filter(periodo=periodo_date)}
+
+    recaudado = 0.0
+    socios_bloqueados = 0
+    cuotas_vencidas_count = 0
+    procesados = set()
+
+    for m in moviles:
+        socio = m.socio
+        if socio.id_socio in procesados:
+            continue
+        procesados.add(socio.id_socio)
+
+        cuota = cuotas_semana.get(socio.id_socio)
+
+        if cuota and cuota.estado_pago == 'PAGADO':
+            recaudado += float(cuota.monto)
+            continue
+
+        if not cuota:
+            cuota = Cuota()
+            cuota.id_cuota = nextval('seq_cuotas')
+            cuota.socio = socio
+            cuota.periodo = periodo_date
+            cuota.monto = tarifa
+            cuota.fecha_vencimiento = vencimiento
+            cuota.estado_pago = 'VENCIDO'
+            cuota.save()
+        elif cuota.estado_pago != 'VENCIDO':
+            cuota.estado_pago = 'VENCIDO'
+            cuota.save(update_fields=['estado_pago'])
+        cuotas_vencidas_count += 1
+
+        ya_bloqueado = Bloqueo.objects.filter(socio=socio, activo=1, tipo_bloqueo='CUOTA_VENCIDA').exists()
+        if not ya_bloqueado:
+            bloqueo = Bloqueo()
+            bloqueo.id_bloqueo = nextval('seq_bloqueos')
+            bloqueo.socio = socio
+            bloqueo.motivo = f'Cierre de semana sin pago — {periodo_str}'
+            bloqueo.tipo_bloqueo = 'CUOTA_VENCIDA'
+            bloqueo.fecha_inicio = hoy
+            bloqueo.activo = 1
+            bloqueo.save()
+            socios_bloqueados += 1
+
+        if socio.estado_socio != 'BLOQUEADO':
+            socio.estado_socio = 'BLOQUEADO'
+            socio.save(update_fields=['estado_socio'])
+
+    return Response({
+        'periodo':            periodo_str,
+        'recaudado':          recaudado,
+        'cuotas_vencidas':    cuotas_vencidas_count,
+        'socios_bloqueados':  socios_bloqueados,
+        'fecha':              hoy.isoformat(),
     })
 
 
