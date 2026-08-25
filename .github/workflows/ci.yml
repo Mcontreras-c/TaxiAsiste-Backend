@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # Los modelos son managed=False (esquema Oracle armado a mano, no con
+    # migrations) -- por eso los tests corren contra un Oracle real en un
+    # contenedor efimero de CI, provisionado con los mismos scripts SQL que
+    # el entorno local (ver README.md, seccion "Tests").
+    services:
+      oracle:
+        image: gvenzl/oracle-xe:21-slim
+        env:
+          ORACLE_PASSWORD: oracle
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd healthcheck.sh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SECRET_KEY: ci-test-secret-key
+      DEBUG: 'False'
+      ORACLE_HOST: localhost
+      ORACLE_PORT: 1521
+      ORACLE_SERVICE_NAME: XEPDB1
+      # Credenciales de "app" que settings.py exige al importarse -- no se
+      # usan realmente para nada (settings_test.py las pisa con las de
+      # ORACLE_TEST_USER/PASSWORD antes de correr un test).
+      ORACLE_USER: taxiasiste_app
+      ORACLE_PASSWORD: TaxiAsiste_App_2026
+      ORACLE_TEST_USER: taxiasiste_test
+      ORACLE_TEST_PASSWORD: TaxiAsiste_Test_2026
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Crear usuario Oracle de test (una vez por corrida, contenedor efimero)
+        env:
+          ORACLE_USER: system
+          ORACLE_PASSWORD: oracle
+        run: python scripts/_run_sql_script.py scripts/setup_test_schema.sql
+
+      - name: Crear el esquema de negocio en el usuario de test
+        env:
+          ORACLE_USER: ${{ env.ORACLE_TEST_USER }}
+          ORACLE_PASSWORD: ${{ env.ORACLE_TEST_PASSWORD }}
+        run: |
+          python scripts/_run_sql_script.py scripts/create_business_schema.sql
+          python scripts/_run_sql_script.py scripts/upgrade_local_schema.sql
+          python scripts/_run_sql_script.py scripts/add_sesion_unica.sql
+
+      - name: Migrar tablas de Django (token_blacklist y demas apps managed=True)
+        env:
+          DJANGO_SETTINGS_MODULE: taxiasiste.settings_test
+        run: python manage.py migrate --no-input
+
+      - name: Correr tests
+        run: pytest

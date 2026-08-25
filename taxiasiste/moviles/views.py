@@ -48,9 +48,16 @@ class MovilViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def conectar(self, request, pk=None):
-        """El conductor inicia sesion / vuelve a servicio → móvil pasa a DISPONIBLE."""
+        """El conductor inicia sesion / vuelve a servicio → móvil pasa a
+        DISPONIBLE, salvo que ya tenga un viaje EN_CURSO: la app llama a esto
+        cada vez que arranca el ConductorProvider (login, o simplemente
+        reabrir la app), y si el conductor lo hace en medio de un viaje esto
+        no puede pisarle el EN_SERVICIO que puso cambiar_estado — si no, el
+        mapa de Central lo vuelve a mostrar verde ("libre") con un pasajero
+        a bordo."""
         movil = self.get_object()
-        movil.estado_operativo = 'DISPONIBLE'
+        tiene_viaje_en_curso = movil.solicitudes.filter(estado='EN_CURSO').exists()
+        movil.estado_operativo = 'EN_SERVICIO' if tiene_viaje_en_curso else 'DISPONIBLE'
         movil.save(update_fields=['estado_operativo'])
         return Response(MovilSerializer(movil).data, status=status.HTTP_200_OK)
 
@@ -71,14 +78,6 @@ class FilaBaseViewSet(ModelViewSet):
         if self.action == 'list' and self.request.query_params.get('todos', '0') != '1':
             return qs.filter(estado='EN_ESPERA')
         return qs
-
-    def create(self, request, *args, **kwargs):
-        """Evita duplicados: un movil no puede tener dos entradas activas en la fila."""
-        movil_id = request.data.get('movil')
-        ya_en_fila = FilaBase.objects.filter(movil_id=movil_id, estado__in=['EN_ESPERA', 'LLAMADO']).first()
-        if ya_en_fila:
-            return Response(FilaBaseSerializer(ya_en_fila).data, status=status.HTTP_200_OK)
-        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         """Asigna la posición automáticamente al ingresar a la fila.
@@ -115,7 +114,7 @@ class FilaBaseViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def retirar(self, request, pk=None):
-        """Móvil sale de la base → estado RETIRADO, y se recorre la posición del resto."""
+        """Móvil sale de la base → estado RETIRADO."""
         entrada = self.get_object()
         if entrada.estado not in ('EN_ESPERA', 'LLAMADO'):
             return Response(
@@ -125,15 +124,6 @@ class FilaBaseViewSet(ModelViewSet):
         entrada.estado = 'RETIRADO'
         entrada.fecha_salida = timezone.now()
         entrada.save(update_fields=['estado', 'fecha_salida'])
-
-        # Re-numera al resto de la fila (EN_ESPERA) por orden de llegada, para
-        # que no queden "huecos" en las posiciones (ej: 2, 3, 4 en vez de 1, 2, 3).
-        restantes = FilaBase.objects.filter(estado='EN_ESPERA').order_by('fecha_ingreso')
-        for nueva_posicion, fila in enumerate(restantes, start=1):
-            if fila.posicion != nueva_posicion:
-                fila.posicion = nueva_posicion
-                fila.save(update_fields=['posicion'])
-
         return Response(FilaBaseSerializer(entrada).data)
 
 
