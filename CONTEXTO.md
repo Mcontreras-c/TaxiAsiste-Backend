@@ -135,6 +135,18 @@
     mas verificado a mano contra el backend de desarrollo (DISPONIBLE ->
     EN_SERVICIO -> DISPONIBLE via curl, ciclo completo)
 
+**Bug de seguimiento encontrado por el usuario real**: `MovilViewSet.conectar`
+(`POST /api/moviles/{id}/conectar/`) forzaba `estado_operativo = 'DISPONIBLE'`
+sin condicion alguna. El Mobile llama a este endpoint una vez por sesion
+desde `ConductorProvider` apenas carga el perfil (login, o simplemente
+reabrir la app) — si el conductor lo hacia con un viaje ya EN_CURSO, esto le
+pisaba el EN_SERVICIO que `cambiar_estado` ya habia puesto, y el mapa de
+Central lo volvia a mostrar libre (verde) con un pasajero a bordo. Arreglado:
+`conectar` ahora chequea si el movil tiene una `Solicitud` con
+`estado='EN_CURSO'` (`movil.solicitudes.filter(estado='EN_CURSO').exists()`)
+y en ese caso pone EN_SERVICIO en vez de DISPONIBLE. 2 tests nuevos en
+`moviles/test_permisos.py` contra Oracle real.
+
 ## Tests automatizados (Backend)
 - pytest + pytest-django, contra un esquema Oracle real y separado
   (`taxiasiste_test`, mismo contenedor Docker) — NO contra sqlite ni mocks.
