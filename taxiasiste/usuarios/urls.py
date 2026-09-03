@@ -1,4 +1,4 @@
-from rest_framework.routers import SimpleRouter
+from taxiasiste.utils.routers import DecimalPkRouter as SimpleRouter
 
 from .views import RolViewSet, UsuarioViewSet
 

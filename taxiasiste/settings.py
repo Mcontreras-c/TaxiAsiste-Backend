@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'drf_spectacular',
     'taxiasiste.usuarios',
@@ -125,6 +126,19 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    # ROTATE_REFRESH_TOKENS+BLACKLIST_AFTER_ROTATION se probaron y se
+    # DESCARTARON: con varios pollers concurrentes compartiendo el mismo
+    # refresh token (fila, solicitudes, notificaciones, ubicacion en
+    # background), si dos de ellos refrescan casi al mismo tiempo -- lo mas
+    # probable justo cuando el access token de 8h vence -- el segundo usa un
+    # refresh que el primero ya dejo en blacklist, y ese poller queda
+    # muerto hasta el proximo login manual. Esto se vio en produccion: el
+    # GPS del conductor dejaba de actualizarse "despues de un rato" tanto en
+    # el mapa web como en su propio celular, y solo un logout+login lo
+    # arreglaba. El refresh token ahora es reutilizable durante toda su
+    # vida (1 dia) como antes -- el blacklist en si sigue activo para el
+    # logout explicito (POST /api/logout/), que es una accion unica y
+    # deliberada, no un hot path con carreras.
 }
 
 SPECTACULAR_SETTINGS = {

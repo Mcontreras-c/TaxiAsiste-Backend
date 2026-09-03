@@ -7,6 +7,7 @@ from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from taxiasiste.usuarios.models import Usuario
@@ -86,3 +87,35 @@ class LoginView(APIView):
                 'estado': usuario.estado,
             },
         })
+
+
+class LogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
+
+
+class LogoutView(APIView):
+    """
+    Invalida el refresh token del lado del servidor (blacklist) al cerrar
+    sesion. Sin esto, un logout solo borraba el token en el dispositivo —
+    el refresh seguia siendo valido en el backend hasta que expiraba solo
+    (hasta 1 dia), asi que un token filtrado/robado de un dispositivo con
+    sesion cerrada igual podia seguir usandose para pedir access tokens
+    nuevos.
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(request=LogoutSerializer)
+    def post(self, request):
+        refresh = request.data.get('refresh')
+        if not refresh:
+            return Response({'detail': 'refresh es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            RefreshToken(refresh).blacklist()
+        except TokenError:
+            # Ya vencido, ya en blacklist, o malformado -- el resultado que
+            # le interesa al cliente (que ese token no sirva mas) ya se
+            # cumple igual, asi que no hace falta que el logout falle.
+            pass
+
+        return Response(status=status.HTTP_205_RESET_CONTENT)
