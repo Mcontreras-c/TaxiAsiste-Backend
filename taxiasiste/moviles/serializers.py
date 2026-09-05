@@ -13,7 +13,17 @@ class RoundingDecimalField(serializers.DecimalField):
     nunca alcanza a evitar el error 'Ensure that there are no more than N
     decimal places' cuando el GPS entrega mas decimales de los que la columna
     Oracle admite (comun en telefonos reales, que dan 7+ decimales).
+
+    coerce_to_string=False por defecto: DRF serializa DecimalField como
+    string por default (para no perder precision en JSON), pero
+    react-native-maps rechaza un string en latitude/longitude con
+    UnexpectedNativeTypeException — necesita un number de verdad. Leaflet
+    (web) toleraba el string por su tipado laxo; react-native-maps no.
     """
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('coerce_to_string', False)
+        super().__init__(*args, **kwargs)
 
     def validate_precision(self, value):
         quantizer = decimal.Decimal('1') / (decimal.Decimal(10) ** self.decimal_places)
@@ -24,8 +34,8 @@ class RoundingDecimalField(serializers.DecimalField):
 class MovilSerializer(serializers.ModelSerializer):
     socio_nombre   = serializers.CharField(source='socio.__str__', read_only=True)
     socio_telefono = serializers.CharField(source='socio.telefono', read_only=True)
-    lat            = serializers.DecimalField(source='ubicacion_actual.lat', max_digits=10, decimal_places=6, read_only=True, default=None)
-    lng            = serializers.DecimalField(source='ubicacion_actual.lng', max_digits=10, decimal_places=6, read_only=True, default=None)
+    lat            = serializers.DecimalField(source='ubicacion_actual.lat', max_digits=10, decimal_places=6, read_only=True, default=None, coerce_to_string=False)
+    lng            = serializers.DecimalField(source='ubicacion_actual.lng', max_digits=10, decimal_places=6, read_only=True, default=None, coerce_to_string=False)
 
     class Meta:
         model = Movil

@@ -1,68 +1,54 @@
-import re
-import time
-
 import requests
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-# Nominatim exige un User-Agent identificable y max ~1 request/segundo — un
-# navegador no puede fijar el header User-Agent via fetch/axios, por eso esto
-# pasa por el backend en vez de llamarse directo desde el frontend.
-NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
-NOMINATIM_USER_AGENT = 'TaxiAsiste/1.0 (uso interno sindicato de taxis)'
-
-def _separar_calle_comuna(direccion):
-    """'Leon XIII 2477, Maipu' -> ('Leon XIII 2477', 'Maipu'). Sin coma, todo es 'calle'."""
-    partes = [p.strip() for p in direccion.split(',') if p.strip()]
-    if len(partes) >= 2:
-        return partes[0], partes[1]
-    return partes[0] if partes else direccion.strip(), None
-
-
-def _quitar_numeracion(calle):
-    """'Leon XIII 2477' -> 'Leon XIII' (sin el numero de casa)."""
-    sin_numero = re.sub(r'\b\d+[A-Za-z]?\b', '', calle)
-    return re.sub(r'\s{2,}', ' ', sin_numero).strip(' ,')
+# Google Geocoding/Directions exigen la key como query param — por eso esto
+# pasa por el backend (clave "TaxiAsiste - Backend", restringida por API) en
+# vez de llamarse directo desde el frontend, que usa una clave distinta
+# restringida por dominio.
+GEOCODING_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
+DIRECTIONS_URL = 'https://maps.googleapis.com/maps/api/directions/json'
 
 
 def _tiene_calle_valida(item):
     """
-    Nominatim devuelve el 'address' desglosado solo con addressdetails=1.
-    Sin la clave 'road', el resultado es un barrio/suburbio/comuna generico
-    (ej. 'Marianela' en vez de 'Leon XIII') — no sirve para despacho de taxis.
+    Sin un componente de tipo 'route' (calle), Google devolvio algo generico
+    (una comuna/region) — no sirve para despacho de taxis puerta a puerta.
     """
-    return bool(item.get('address', {}).get('road'))
+    return any('route' in c.get('types', []) for c in item.get('address_components', []))
 
 
-def _consultar_nominatim_estructurado(calle, comuna):
-    """Busqueda estructurada (street/city/country) en vez de 'q' libre —
-    evita que Nominatim adivine mal y devuelva un barrio en vez de la calle."""
-    params = {
-        'street': calle,
-        'country': 'Chile',
-        'format': 'json',
-        'limit': 1,
-        'addressdetails': 1,
-        'countrycodes': 'cl',
-    }
-    if comuna:
-        params['city'] = comuna
-    resp = requests.get(
-        NOMINATIM_URL,
-        params=params,
-        headers={'User-Agent': NOMINATIM_USER_AGENT},
-        timeout=6,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-# Servidor demo publico de OSRM — sin key, sin SLA garantizado (suficiente
-# para desarrollo/piloto; para produccion con mas trafico conviene
-# autoalojar el servicio).
-OSRM_URL = 'https://router.project-osrm.org/route/v1/driving'
+def _decodificar_polyline(encoded):
+    """
+    Decodifica el 'overview_polyline' que devuelve Directions (algoritmo
+    estandar de Google, precision 1e-5) a una lista de coordenadas [lng, lat]
+    — mismo formato GeoJSON que se usaba antes con el LineString de OSRM, asi
+    el frontend (MapaDespacho) no tuvo que cambiar nada de como consume esto.
+    """
+    puntos = []
+    index = lat = lng = 0
+    largo = len(encoded)
+    while index < largo:
+        for coordenada in ('lat', 'lng'):
+            resultado = desplazamiento = 0
+            while True:
+                b = ord(encoded[index]) - 63
+                index += 1
+                resultado |= (b & 0x1f) << desplazamiento
+                desplazamiento += 5
+                if b < 0x20:
+                    break
+            delta = ~(resultado >> 1) if resultado & 1 else (resultado >> 1)
+            if coordenada == 'lat':
+                lat += delta
+            else:
+                lng += delta
+        puntos.append([lng / 1e5, lat / 1e5])
+    return puntos
 
 
 @api_view(['GET'])
@@ -77,51 +63,47 @@ def ping(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def geocodificar(request):
-    """Convierte una direccion en texto a lat/lng usando busqueda estructurada de Nominatim (OSM)."""
+    """Convierte una direccion en texto a lat/lng usando Google Geocoding API."""
     direccion = request.query_params.get('direccion', '').strip()
     if not direccion:
         return Response({'detail': 'Parametro "direccion" es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    calle, comuna = _separar_calle_comuna(direccion)
-
     try:
-        resultados = _consultar_nominatim_estructurado(calle, comuna)
-
-        # Validacion estricta: sin 'road' en el address, Nominatim no ubico
-        # la calle (devolvio un barrio/suburbio, ej. 'Marianela' en vez de
-        # 'Leon XIII') — se reintenta solo con la calle, sin el numero,
-        # que suele ser lo que le impide encontrarla.
-        if not resultados or not _tiene_calle_valida(resultados[0]):
-            calle_sin_numero = _quitar_numeracion(calle)
-            if calle_sin_numero and calle_sin_numero != calle:
-                # Nominatim exige max ~1 req/s; sin esta pausa, el segundo
-                # intento (fallback) puede ser descartado/throttleado por ir
-                # pegado al primero dentro de la misma request.
-                time.sleep(1)
-                resultados_fallback = _consultar_nominatim_estructurado(calle_sin_numero, comuna)
-                if resultados_fallback:
-                    resultados = resultados_fallback
+        resp = requests.get(
+            GEOCODING_URL,
+            params={
+                'address': direccion,
+                'region': 'cl',
+                'components': 'country:CL',
+                'key': settings.GOOGLE_MAPS_API_KEY,
+            },
+            timeout=6,
+        )
+        resp.raise_for_status()
+        data = resp.json()
     except requests.RequestException:
         return Response({'detail': 'Servicio de geocodificacion no disponible.'}, status=status.HTTP_502_BAD_GATEWAY)
 
-    if not resultados or not _tiene_calle_valida(resultados[0]):
+    resultados = data.get('results') or []
+    if data.get('status') != 'OK' or not resultados or not _tiene_calle_valida(resultados[0]):
         return Response(
             {'detail': 'No se pudo ubicar la calle exacta de esta dirección.'},
             status=status.HTTP_404_NOT_FOUND,
         )
 
     r = resultados[0]
+    ubicacion = r['geometry']['location']
     return Response({
-        'lat': float(r['lat']),
-        'lng': float(r['lon']),
-        'direccion_formateada': r.get('display_name', direccion),
+        'lat': ubicacion['lat'],
+        'lng': ubicacion['lng'],
+        'direccion_formateada': r.get('formatted_address', direccion),
     })
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def ruta(request):
-    """Traza la ruta origen->destino usando OSRM. Devuelve un GeoJSON LineString."""
+    """Traza la ruta origen->destino usando Google Directions API. Devuelve un GeoJSON LineString."""
     try:
         origen_lat = float(request.query_params['origen_lat'])
         origen_lng = float(request.query_params['origen_lng'])
@@ -133,11 +115,16 @@ def ruta(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    coords = f'{origen_lng},{origen_lat};{destino_lng},{destino_lat}'
     try:
         resp = requests.get(
-            f'{OSRM_URL}/{coords}',
-            params={'overview': 'full', 'geometries': 'geojson'},
+            DIRECTIONS_URL,
+            params={
+                'origin': f'{origen_lat},{origen_lng}',
+                'destination': f'{destino_lat},{destino_lng}',
+                'mode': 'driving',
+                'region': 'cl',
+                'key': settings.GOOGLE_MAPS_API_KEY,
+            },
             timeout=6,
         )
         resp.raise_for_status()
@@ -145,12 +132,14 @@ def ruta(request):
     except requests.RequestException:
         return Response({'detail': 'Servicio de ruteo no disponible.'}, status=status.HTTP_502_BAD_GATEWAY)
 
-    if data.get('code') != 'Ok' or not data.get('routes'):
+    if data.get('status') != 'OK' or not data.get('routes'):
         return Response({'detail': 'No se pudo calcular una ruta entre esos puntos.'}, status=status.HTTP_404_NOT_FOUND)
 
     route = data['routes'][0]
+    leg = route['legs'][0]
+    coordenadas = _decodificar_polyline(route['overview_polyline']['points'])
     return Response({
-        'geometry': route['geometry'],  # GeoJSON LineString: {type, coordinates: [[lng,lat], ...]}
-        'distancia_m': route['distance'],
-        'duracion_s': route['duration'],
+        'geometry': {'type': 'LineString', 'coordinates': coordenadas},
+        'distancia_m': leg['distance']['value'],
+        'duracion_s': leg['duration']['value'],
     })

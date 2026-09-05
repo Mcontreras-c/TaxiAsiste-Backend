@@ -13,6 +13,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+# Clave "TaxiAsiste - Backend" (Geocoding API + Directions API) -- ver taxiasiste/views.py
+GOOGLE_MAPS_API_KEY = config('GOOGLE_MAPS_API_KEY', default='')
+
 ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
