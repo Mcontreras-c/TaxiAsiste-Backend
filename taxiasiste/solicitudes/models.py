@@ -3,6 +3,8 @@ from django.utils import timezone
 
 from taxiasiste.utils.oracle_seq import nextval
 
+DESTINO_UNICO = 'Hospital Félix Bulnes, Cerro Navia'
+
 
 class Pasajero(models.Model):
     id_pasajero = models.FloatField(primary_key=True)
@@ -95,6 +97,9 @@ class Solicitud(models.Model):
     def save(self, *args, **kwargs):
         if not self.id_solicitud:
             self.id_solicitud = nextval('seq_solicitudes')
+        # TaxiAsiste solo hace traslados a este hospital -- el destino nunca
+        # es libre, se fija siempre aca sin importar lo que mande el cliente.
+        self.destino = DESTINO_UNICO
         if not self.folio:
             anio = timezone.now().year
             self.folio = f'SOL-{anio}-{int(self.id_solicitud):05d}'
