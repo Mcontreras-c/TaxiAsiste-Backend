@@ -70,6 +70,11 @@ class Solicitud(models.Model):
         db_comment='Código legible — ej: SOL-2026-00001',
     )
     origen = models.CharField(max_length=200)
+    origen_lat = models.DecimalField(
+        max_digits=10, decimal_places=6, blank=True, null=True,
+        db_comment='Geocodificado desde origen al crear la solicitud (best-effort, puede quedar null)',
+    )
+    origen_lng = models.DecimalField(max_digits=10, decimal_places=6, blank=True, null=True)
     destino = models.CharField(max_length=200)
     fecha_hora = models.DateTimeField(
         db_comment='Momento en que la central registra la solicitud',

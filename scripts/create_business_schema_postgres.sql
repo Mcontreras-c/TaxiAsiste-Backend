@@ -152,6 +152,8 @@ CREATE TABLE "SOLICITUDES" (
     id_usuario_central INTEGER REFERENCES "USUARIOS"(id_usuario),
     folio VARCHAR(20) UNIQUE NOT NULL,
     origen VARCHAR(200) NOT NULL,
+    origen_lat NUMERIC(10, 6),
+    origen_lng NUMERIC(10, 6),
     destino VARCHAR(200) NOT NULL,
     fecha_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     estado VARCHAR(20) DEFAULT 'PENDIENTE',

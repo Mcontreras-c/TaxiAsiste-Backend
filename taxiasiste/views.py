@@ -60,13 +60,23 @@ def ping(request):
     })
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def geocodificar(request):
-    """Convierte una direccion en texto a lat/lng usando Google Geocoding API."""
-    direccion = request.query_params.get('direccion', '').strip()
+def geocodificar_direccion(direccion):
+    """
+    Convierte una direccion en texto a lat/lng usando Google Geocoding API.
+    Helper compartido por la vista `geocodificar` (usada por el Frontend para
+    autocompletar) y por SolicitudViewSet.perform_create (geocodifica el
+    origen al crear, para poder calcular distancia/ETA despues sin volver a
+    llamar a Google).
+
+    Devuelve (lat, lng, direccion_formateada, error), donde error es None si
+    salio bien, 'red' si Google no respondio, o 'no_encontrada' si no se pudo
+    ubicar una calle exacta -- perform_create ignora el motivo (siempre es
+    best-effort, nunca bloquea la creacion), pero la vista `geocodificar` si
+    lo necesita para devolver 502 vs 404 como antes de este refactor.
+    """
+    direccion = (direccion or '').strip()
     if not direccion:
-        return Response({'detail': 'Parametro "direccion" es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+        return None, None, None, 'no_encontrada'
 
     try:
         resp = requests.get(
@@ -82,22 +92,74 @@ def geocodificar(request):
         resp.raise_for_status()
         data = resp.json()
     except requests.RequestException:
-        return Response({'detail': 'Servicio de geocodificacion no disponible.'}, status=status.HTTP_502_BAD_GATEWAY)
+        return None, None, None, 'red'
 
     resultados = data.get('results') or []
     if data.get('status') != 'OK' or not resultados or not _tiene_calle_valida(resultados[0]):
+        return None, None, None, 'no_encontrada'
+
+    r = resultados[0]
+    ubicacion = r['geometry']['location']
+    return ubicacion['lat'], ubicacion['lng'], r.get('formatted_address', direccion), None
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def geocodificar(request):
+    """Convierte una direccion en texto a lat/lng usando Google Geocoding API."""
+    direccion = request.query_params.get('direccion', '').strip()
+    if not direccion:
+        return Response({'detail': 'Parametro "direccion" es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    lat, lng, direccion_formateada, error = geocodificar_direccion(direccion)
+    if error == 'red':
+        return Response({'detail': 'Servicio de geocodificacion no disponible.'}, status=status.HTTP_502_BAD_GATEWAY)
+    if error:
         return Response(
             {'detail': 'No se pudo ubicar la calle exacta de esta dirección.'},
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    r = resultados[0]
-    ubicacion = r['geometry']['location']
     return Response({
-        'lat': ubicacion['lat'],
-        'lng': ubicacion['lng'],
-        'direccion_formateada': r.get('formatted_address', direccion),
+        'lat': lat,
+        'lng': lng,
+        'direccion_formateada': direccion_formateada,
     })
+
+
+def calcular_ruta(origen_lat, origen_lng, destino_lat, destino_lng):
+    """
+    Llama a Google Directions API para la ruta origen->destino. Helper
+    compartido por la vista `ruta` (traza en el mapa) y por
+    SolicitudViewSet.pendientes_con_distancia (distancia/ETA del conductor
+    hasta el punto de recogida).
+
+    Devuelve (data, error), donde error es None si salio bien, 'red' si
+    Google no respondio, o 'sin_ruta' si no encontro una ruta entre los
+    puntos -- pendientes_con_distancia ignora el motivo (best-effort, esa
+    solicitud simplemente queda sin distancia/ETA), pero la vista `ruta` si
+    lo necesita para devolver 502 vs 404 como antes de este refactor.
+    """
+    try:
+        resp = requests.get(
+            DIRECTIONS_URL,
+            params={
+                'origin': f'{origen_lat},{origen_lng}',
+                'destination': f'{destino_lat},{destino_lng}',
+                'mode': 'driving',
+                'region': 'cl',
+                'key': settings.GOOGLE_MAPS_API_KEY,
+            },
+            timeout=6,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException:
+        return None, 'red'
+
+    if data.get('status') != 'OK' or not data.get('routes'):
+        return None, 'sin_ruta'
+    return data, None
 
 
 @api_view(['GET'])
@@ -115,24 +177,10 @@ def ruta(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    try:
-        resp = requests.get(
-            DIRECTIONS_URL,
-            params={
-                'origin': f'{origen_lat},{origen_lng}',
-                'destination': f'{destino_lat},{destino_lng}',
-                'mode': 'driving',
-                'region': 'cl',
-                'key': settings.GOOGLE_MAPS_API_KEY,
-            },
-            timeout=6,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except requests.RequestException:
+    data, error = calcular_ruta(origen_lat, origen_lng, destino_lat, destino_lng)
+    if error == 'red':
         return Response({'detail': 'Servicio de ruteo no disponible.'}, status=status.HTTP_502_BAD_GATEWAY)
-
-    if data.get('status') != 'OK' or not data.get('routes'):
+    if error:
         return Response({'detail': 'No se pudo calcular una ruta entre esos puntos.'}, status=status.HTTP_404_NOT_FOUND)
 
     route = data['routes'][0]
