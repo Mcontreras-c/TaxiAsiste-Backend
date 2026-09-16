@@ -49,15 +49,24 @@ class MovilViewSet(ModelViewSet):
     @action(detail=True, methods=['post'])
     def conectar(self, request, pk=None):
         """El conductor inicia sesion / vuelve a servicio → móvil pasa a
-        DISPONIBLE, salvo que ya tenga un viaje EN_CURSO: la app llama a esto
-        cada vez que arranca el ConductorProvider (login, o simplemente
+        DISPONIBLE, salvo que tenga un viaje ASIGNADO o EN_CURSO: la app llama
+        a esto cada vez que arranca el ConductorProvider (login, o simplemente
         reabrir la app), y si el conductor lo hace en medio de un viaje esto
-        no puede pisarle el EN_SERVICIO que puso cambiar_estado — si no, el
-        mapa de Central lo vuelve a mostrar verde ("libre") con un pasajero
-        a bordo."""
+        no puede pisarle el EN_SERVICIO/EN_VIAJE que puso cambiar_estado — si
+        no, el mapa de Central lo vuelve a mostrar verde ("libre") con un
+        viaje activo."""
         movil = self.get_object()
-        tiene_viaje_en_curso = movil.solicitudes.filter(estado='EN_CURSO').exists()
-        movil.estado_operativo = 'EN_SERVICIO' if tiene_viaje_en_curso else 'DISPONIBLE'
+        solicitud_activa = (
+            movil.solicitudes.filter(estado__in=['ASIGNADO', 'EN_CURSO'])
+            .order_by('-fecha_hora')
+            .first()
+        )
+        if solicitud_activa is None:
+            movil.estado_operativo = 'DISPONIBLE'
+        elif solicitud_activa.estado == 'EN_CURSO':
+            movil.estado_operativo = 'EN_VIAJE'
+        else:
+            movil.estado_operativo = 'EN_SERVICIO'
         movil.save(update_fields=['estado_operativo'])
         return Response(MovilSerializer(movil).data, status=status.HTTP_200_OK)
 

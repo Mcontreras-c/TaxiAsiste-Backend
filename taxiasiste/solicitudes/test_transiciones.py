@@ -44,6 +44,8 @@ def test_pendiente_a_asignado_con_movil_ok(autenticar, crear_usuario, crear_soci
     assert resp.status_code == 200
     assert resp.data['estado'] == 'ASIGNADO'
     assert resp.data['fecha_asignacion'] is not None
+    movil.refresh_from_db()
+    assert movil.estado_operativo == 'EN_SERVICIO'
 
 
 @pytest.mark.django_db
@@ -85,11 +87,31 @@ def test_cancelar_en_curso_ok(autenticar, crear_usuario, solicitud_pendiente):
 
 
 @pytest.mark.django_db
-def test_en_curso_pone_el_movil_en_servicio(autenticar, crear_usuario, solicitud_asignada):
-    """El mapa de Central pinta EN_SERVICIO de azul (COLOR_ESTADO en
-    MapaDespacho.tsx) -- sin este flag, el pasajero a bordo nunca se refleja
-    ahi aunque el viaje ya haya arrancado."""
+def test_asignado_pone_el_movil_en_servicio(autenticar, crear_usuario, crear_socio, crear_movil, solicitud_pendiente):
+    """El conductor tomo la solicitud y va en camino a buscar al pasajero --
+    el mapa de Central ya debe dejar de mostrarlo DISPONIBLE (verde) aunque
+    el viaje todavia no arranco (COLOR_ESTADO en MapaDespacho.tsx)."""
     central = crear_usuario('central6', rol_nombre='Central')
+    movil = crear_movil(crear_socio('30303030-3'), 'ASIG02')
+    client = autenticar(central)
+    assert movil.estado_operativo == 'DISPONIBLE'
+
+    resp = client.post(
+        f'/api/solicitudes/{solicitud_pendiente.id_solicitud}/cambiar_estado/',
+        {'estado': 'ASIGNADO', 'movil': movil.id_movil},
+    )
+
+    assert resp.status_code == 200
+    movil.refresh_from_db()
+    assert movil.estado_operativo == 'EN_SERVICIO'
+
+
+@pytest.mark.django_db
+def test_en_curso_pone_el_movil_en_viaje(autenticar, crear_usuario, solicitud_asignada):
+    """EN_VIAJE es un color distinto de EN_SERVICIO (COLOR_ESTADO en
+    MapaDespacho.tsx) -- sin este flag, un pasajero a bordo se ve identico en
+    el mapa a un conductor que solo va en camino a buscarlo."""
+    central = crear_usuario('central6b', rol_nombre='Central')
     client = autenticar(central)
     assert solicitud_asignada.movil.estado_operativo == 'DISPONIBLE'
 
@@ -97,7 +119,7 @@ def test_en_curso_pone_el_movil_en_servicio(autenticar, crear_usuario, solicitud
 
     assert resp.status_code == 200
     solicitud_asignada.movil.refresh_from_db()
-    assert solicitud_asignada.movil.estado_operativo == 'EN_SERVICIO'
+    assert solicitud_asignada.movil.estado_operativo == 'EN_VIAJE'
 
 
 @pytest.mark.django_db
@@ -122,7 +144,7 @@ def test_terminar_viaje_vuelve_el_movil_a_disponible(autenticar, crear_usuario, 
     client = autenticar(central)
     client.post(f'/api/solicitudes/{solicitud_asignada.id_solicitud}/cambiar_estado/', {'estado': 'EN_CURSO'})
     solicitud_asignada.movil.refresh_from_db()
-    assert solicitud_asignada.movil.estado_operativo == 'EN_SERVICIO'
+    assert solicitud_asignada.movil.estado_operativo == 'EN_VIAJE'
 
     client.post(f'/api/solicitudes/{solicitud_asignada.id_solicitud}/cambiar_estado/', {'estado': estado_final})
 
@@ -132,8 +154,10 @@ def test_terminar_viaje_vuelve_el_movil_a_disponible(autenticar, crear_usuario, 
 
 @pytest.mark.django_db
 def test_cancelar_desde_asignado_no_toca_el_movil(autenticar, crear_usuario, solicitud_asignada):
-    """Cancelar antes de EN_CURSO: el movil nunca paso a EN_SERVICIO, asi
-    que tampoco hay nada que revertir -- sigue DISPONIBLE como estaba."""
+    """La fixture solicitud_asignada deja la solicitud en ASIGNADO saltandose
+    la API (asigna el movil directo por ORM) -- el movil nunca paso a
+    EN_SERVICIO, asi que tampoco hay nada que revertir -- sigue DISPONIBLE
+    como estaba."""
     central = crear_usuario('central9', rol_nombre='Central')
     client = autenticar(central)
 
@@ -141,3 +165,25 @@ def test_cancelar_desde_asignado_no_toca_el_movil(autenticar, crear_usuario, sol
 
     solicitud_asignada.movil.refresh_from_db()
     assert solicitud_asignada.movil.estado_operativo == 'DISPONIBLE'
+
+
+@pytest.mark.django_db
+def test_cancelar_desde_asignado_por_api_revierte_a_disponible(
+    autenticar, crear_usuario, crear_socio, crear_movil, solicitud_pendiente
+):
+    """A diferencia del test anterior, aca la asignacion pasa por la API real
+    (movil -> EN_SERVICIO) -- cancelar antes de EN_CURSO debe revertirlo."""
+    central = crear_usuario('central9b', rol_nombre='Central')
+    movil = crear_movil(crear_socio('40404040-4'), 'CANC01')
+    client = autenticar(central)
+    client.post(
+        f'/api/solicitudes/{solicitud_pendiente.id_solicitud}/cambiar_estado/',
+        {'estado': 'ASIGNADO', 'movil': movil.id_movil},
+    )
+    movil.refresh_from_db()
+    assert movil.estado_operativo == 'EN_SERVICIO'
+
+    client.post(f'/api/solicitudes/{solicitud_pendiente.id_solicitud}/cambiar_estado/', {'estado': 'CANCELADO'})
+
+    movil.refresh_from_db()
+    assert movil.estado_operativo == 'DISPONIBLE'

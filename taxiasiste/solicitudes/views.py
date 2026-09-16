@@ -92,26 +92,35 @@ class SolicitudViewSet(ModelViewSet):
             solicitud.movil_id = movil_id
             solicitud.fecha_asignacion = ahora
             update_fields += ['movil_id', 'fecha_asignacion']
+            # El conductor tomo la solicitud y va en camino a buscar al
+            # pasajero -> el mapa de Central ya debe dejar de mostrarlo
+            # DISPONIBLE (verde) aunque el viaje todavia no arranco. Solo si
+            # estaba DISPONIBLE: no pisa un BLOQUEADO/INACTIVO puesto a mano.
+            if solicitud.movil and solicitud.movil.estado_operativo == 'DISPONIBLE':
+                solicitud.movil.estado_operativo = 'EN_SERVICIO'
+                solicitud.movil.save(update_fields=['estado_operativo'])
 
         if nuevo_estado == 'EN_CURSO':
             solicitud.fecha_inicio = ahora
             update_fields.append('fecha_inicio')
-            # El pasajero ya esta a bordo -> el movil pasa a EN_SERVICIO
-            # (el mapa de Central ya lo pinta azul via COLOR_ESTADO, sin
-            # cambios en el Frontend). Solo si estaba DISPONIBLE: no pisa un
-            # BLOQUEADO/INACTIVO puesto a mano por Central/Admin.
-            if solicitud.movil and solicitud.movil.estado_operativo == 'DISPONIBLE':
-                solicitud.movil.estado_operativo = 'EN_SERVICIO'
+            # El pasajero ya esta a bordo -> el movil pasa a EN_VIAJE, un
+            # estado/color distinto de EN_SERVICIO (que ahora significa "voy
+            # en camino a buscarlo", puesto en el bloque ASIGNADO de arriba).
+            # Acepta DISPONIBLE tambien por si esta transicion se dispara sin
+            # haber pasado por el flujo normal de ASIGNADO (ver tests).
+            if solicitud.movil and solicitud.movil.estado_operativo in ('DISPONIBLE', 'EN_SERVICIO'):
+                solicitud.movil.estado_operativo = 'EN_VIAJE'
                 solicitud.movil.save(update_fields=['estado_operativo'])
 
         if nuevo_estado in ('COMPLETADO', 'CANCELADO'):
             solicitud.fecha_termino = ahora
             update_fields.append('fecha_termino')
-            # Simetrico al bloque de arriba: el viaje termino -> vuelve a
-            # DISPONIBLE, pero solo si el estado actual es justo el que este
-            # mismo flujo puso (EN_SERVICIO) -- evita reactivar un movil que
-            # Central desconecto/bloqueo mientras el viaje estaba en curso.
-            if solicitud.movil and solicitud.movil.estado_operativo == 'EN_SERVICIO':
+            # Simetrico a los bloques de arriba: el viaje termino (o se
+            # cancelo estando ya ASIGNADO o EN_CURSO) -> vuelve a DISPONIBLE,
+            # pero solo si el estado actual es justo uno de los que este
+            # mismo flujo puso (EN_SERVICIO o EN_VIAJE) -- evita reactivar un
+            # movil que Central desconecto/bloqueo mientras tanto.
+            if solicitud.movil and solicitud.movil.estado_operativo in ('EN_SERVICIO', 'EN_VIAJE'):
                 solicitud.movil.estado_operativo = 'DISPONIBLE'
                 solicitud.movil.save(update_fields=['estado_operativo'])
 
