@@ -79,7 +79,7 @@ class SolicitudSerializer(serializers.ModelSerializer):
             'fecha_inicio',
             'fecha_termino',
         ]
-        read_only_fields = ['id_solicitud', 'folio', 'fecha_hora']
+        read_only_fields = ['id_solicitud', 'folio', 'fecha_hora', 'destino']
 
     def get_pasajero_nombre(self, obj):
         return str(obj.pasajero) if obj.pasajero else None
