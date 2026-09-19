@@ -336,6 +336,25 @@ README del Mobile.
   estructurado — un 500 en produccion hoy solo se ve si alguien esta
   mirando la consola del server en el momento en que pasa
 
+- **Logica de bloqueo/pago duplicada en 4 y 3 lugares (bug real ya
+  confirmado)**: "marcar cuota VENCIDO + crear Bloqueo si no existe uno
+  activo + poner socio en BLOQUEADO" esta reimplementada por separado en
+  `socios/views.py::bloquear()`, `reportes/views.py::cerrar_semana()`,
+  `reportes/views.py::cerrar_periodo()` y
+  `socios/management/commands/bloquear_morosos.py` — las primeras 3 SI
+  actualizan `socio.estado_socio`, pero `bloquear_morosos.py` (el comando
+  candidato a correr por cron, ver pendiente de arriba) NO lo hace: crea
+  el Bloqueo pero el socio queda con estado_socio='ACTIVO'. Mismo patron
+  con "registrar pago de cuota + movimiento de tesoreria", duplicado en
+  `pagar_movil`, `pagar_atrasos` y `registrar_pago_cuota`. Ademas hay
+  `nextval(...)` llamado a mano en varios de estos puntos (import local
+  de `from taxiasiste.utils.oracle_seq import nextval` dentro de la
+  funcion) para asignar id_bloqueo/id_movimiento, cuando `Bloqueo.save()`
+  y `TesoreriaMovimiento.save()` ya lo hacen solos — codigo muerto.
+  Arreglo propuesto: extraer a `socios/services.py` con
+  `bloquear_socio()`, `desbloquear_socio()` y `registrar_pago()`, y que
+  los 7 puntos de entrada llamen a eso en vez de reimplementarlo.
+
 ## Roles del sistema (tabla ROLES)
 - Administrador, Central, Tesorero, Conductor — manejados desde el Frontend web
 - Paletero — SOLO existe en la app Mobile (no tiene pantallas en el frontend web).
