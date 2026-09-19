@@ -23,7 +23,7 @@ class Movil(models.Model):
     estado_operativo = models.CharField(
         max_length=20,
         default='DISPONIBLE',
-        db_comment='DISPONIBLE | EN_SERVICIO | BLOQUEADO | INACTIVO',
+        db_comment='DISPONIBLE | EN_SERVICIO | EN_VIAJE | BLOQUEADO | INACTIVO',
     )
     fecha_registro = models.DateField()
 

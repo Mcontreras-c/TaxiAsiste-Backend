@@ -70,6 +70,8 @@
 - Mobile — Conductor ahora tiene 4 tabs (antes 3): Fila Virtual, Solicitudes, Servicio
   Actual y **Mapa** (nueva, WebView + Leaflet/CARTO, mismo look que el mapa de Central;
   ve su propio movil centrado + otros moviles en linea, sin necesitar Google Maps API key)
+  — **superado por la migracion a Google Maps de mas abajo**, dejar como referencia
+  historica de la decision original (evitar rebuild nativo)
 - Mobile — rastreo en segundo plano: `expo-task-manager` + `startLocationUpdatesAsync`
   (foreground+background unificado), corre cada ~12s incluso con la app cerrada
   (foreground service de Android)
@@ -98,7 +100,54 @@
   sin la flota completa — decluttered) con la tarjeta del pasajero y los
   botones de accion flotando encima, en vez de la lista de texto anterior.
   El mapa se extrajo a `components/MapaConRuta.tsx`
-- Mobile — se elimino la pestaña Mapa como pantalla aparte: era redundante
+## Migracion a Google Maps (reemplaza Leaflet/OSM/Nominatim/OSRM)
+Implementada por dev-loti (rama `dev-loti`), mergeada a `dev-dortiiz` el 2026-09-06
+via fast-forward limpio en los 3 repos (dev-loti ya tenia mergeado todo dev-dortiiz
+antes de este cambio, sin conflictos). Motivo: Nominatim/OSM tenia reconocimiento
+pobre de direcciones chilenas; Google Geocoding las resuelve bien.
+
+- **Backend** (`taxiasiste/views.py`): `geocodificar`/`ruta` ahora llaman a Google
+  Geocoding API / Directions API en vez de Nominatim/OSRM. Mismo contrato de
+  respuesta hacia afuera (`{lat, lng, direccion_formateada}` / `{geometry:
+  LineString, distancia_m, duracion_s}`) — Frontend y Mobile no necesitaron cambios
+  en como consumen estos endpoints. Nueva env var `GOOGLE_MAPS_API_KEY` (clave
+  "TaxiAsiste - Backend", restringida a Geocoding+Directions, nunca va al cliente)
+- **Backend** (`moviles/serializers.py`): `RoundingDecimalField` y los `lat`/`lng`
+  de `MovilSerializer` ahora usan `coerce_to_string=False` — DRF serializa
+  DecimalField como string por defecto, y Leaflet lo toleraba, pero
+  react-native-maps (ver Mobile abajo) rechaza un string en latitude/longitude con
+  `UnexpectedNativeTypeException`. Afecta a toda la API, no solo al mapa
+- **Frontend**: `MapaDespacho.tsx` reescrito con `@react-google-maps/api` en vez de
+  `react-leaflet`. Misma interfaz de props (`moviles`, `altura`, `origenDestino`,
+  `ruta`) — nadie que use el componente tuvo que cambiar nada. Nueva env var
+  `VITE_GOOGLE_MAPS_API_KEY` (clave de navegador, restringida por dominio)
+- **Mobile — cambio de arquitectura importante**: el mapa dejo de ser WebView+Leaflet
+  (decision original: evitar rebuild nativo y API key) y ahora usa
+  **`react-native-maps`**, un modulo **nativo**. `components/MapaConRuta.tsx` se
+  reescribio pero mantiene exactamente la misma interfaz publica (props, `ref` con
+  `centrarEnMi()`) — ningun consumidor (`ServicioActualScreen.tsx`) necesito cambios.
+  Esto implica:
+  - **Requiere rebuild con EAS** (`eas build --profile development`) antes de que
+    funcione en un dispositivo — no alcanza con recargar Metro
+  - `app.json` ahora tiene la key de Android (`androidGoogleMapsApiKey`) **hardcodeada
+    en texto plano y commiteada al repo** — es como `react-native-maps`/Expo exige
+    configurar esta key (no hay forma limpia de inyectarla por env var sin
+    `app.config.js` dinamico). Esto es aceptable en la practica SOLO SI esa key
+    esta restringida en Google Cloud Console por **paquete de Android + huella SHA-1**
+    (no por dominio ni "sin restriccion") — sin esa restriccion, cualquiera que vea
+    el repo puede copiar la key y gastar la cuota. **Pendiente verificar que esta
+    restriccion este puesta** — revisar en Google Cloud Console → Credenciales
+  - `package.json`: se agrega `react-native-maps` + `react-native-svg`, se quita
+    `react-native-webview` (ya no se usa en ningun lado). Scripts `android`/`ios`
+    cambian de `expo start --android/--ios` a `expo run:android/ios` (reflejan que
+    ahora hay codigo nativo que compilar, no solo JS)
+- Pendiente para que funcione end-to-end en un checkout nuevo: cargar
+  `GOOGLE_MAPS_API_KEY` en `.env` del Backend y `VITE_GOOGLE_MAPS_API_KEY` en
+  `.env` del Frontend (pedirle los valores reales a quien administra el proyecto de
+  Google Cloud) — no estan en git a proposito
+
+## Mobile — pestaña Mapa fusionada con Servicio Actual
+- Se elimino la pestaña Mapa como pantalla aparte: era redundante
   con Servicio Actual una vez que este ya mostraba el mapa. Ahora
   ServicioActualScreen.tsx cumple doble proposito con el mismo
   MapaConRuta: sin viaje activo muestra la flota completa

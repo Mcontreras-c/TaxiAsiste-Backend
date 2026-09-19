@@ -13,6 +13,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+# Clave "TaxiAsiste - Backend" (Geocoding API + Directions API) -- ver taxiasiste/views.py
+GOOGLE_MAPS_API_KEY = config('GOOGLE_MAPS_API_KEY', default='')
+
 ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
@@ -64,25 +67,14 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'taxiasiste.wsgi.application'
 
-_oracle_service = config('ORACLE_SERVICE_NAME', default='')
-_oracle_host = config('ORACLE_HOST', default='localhost')
-_oracle_port = config('ORACLE_PORT')
-
-if _oracle_service:
-    _oracle_name = f'{_oracle_host}:{_oracle_port}/{_oracle_service}'
-    _oracle_host = ''
-    _oracle_port = ''
-else:
-    _oracle_name = config('ORACLE_SID')
-
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.oracle',
-        'NAME': _oracle_name,
-        'USER': config('ORACLE_USER'),
-        'PASSWORD': config('ORACLE_PASSWORD'),
-        'HOST': _oracle_host,
-        'PORT': _oracle_port,
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('POSTGRES_DB', default='taxiasiste_dev'),
+        'USER': config('POSTGRES_USER', default='postgres'),
+        'PASSWORD': config('POSTGRES_PASSWORD'),
+        'HOST': config('POSTGRES_HOST', default='localhost'),
+        'PORT': config('POSTGRES_PORT', default='5432'),
     }
 }
 
@@ -110,6 +102,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
