@@ -1,3 +1,4 @@
+from django.contrib.auth.hashers import check_password, make_password
 from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -5,6 +6,8 @@ from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from .models import Rol, Usuario
 from .serializers import RolSerializer, UsuarioSerializer
+
+PASSWORD_MIN_LEN = 6
 
 
 class RolViewSet(ReadOnlyModelViewSet):
@@ -21,6 +24,40 @@ class UsuarioViewSet(ModelViewSet):
         """Devuelve el perfil del usuario autenticado."""
         serializer = UsuarioSerializer(request.user)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def cambiar_password(self, request):
+        """El usuario autenticado cambia su propia contraseña (pide la actual)."""
+        actual = request.data.get('password_actual', '')
+        nueva = request.data.get('password_nueva', '')
+
+        if not actual or not nueva:
+            return Response({'detail': 'password_actual y password_nueva son requeridos.'}, status=400)
+        if len(nueva) < PASSWORD_MIN_LEN:
+            return Response({'detail': f'La nueva contraseña debe tener al menos {PASSWORD_MIN_LEN} caracteres.'}, status=400)
+
+        usuario = request.user
+        if not check_password(actual, usuario.password_hash):
+            return Response({'detail': 'La contraseña actual no es correcta.'}, status=400)
+
+        usuario.password_hash = make_password(nueva)
+        usuario.save(update_fields=['password_hash'])
+        return Response({'detail': 'Contraseña actualizada correctamente.'})
+
+    @action(detail=True, methods=['post'])
+    def resetear_password(self, request, pk=None):
+        """Un Administrador resetea la contraseña de cualquier usuario, sin pedir la actual."""
+        if request.user.rol.nombre_rol != 'Administrador':
+            return Response({'detail': 'Solo un administrador puede resetear contraseñas.'}, status=403)
+
+        nueva = request.data.get('password_nueva', '')
+        if len(nueva) < PASSWORD_MIN_LEN:
+            return Response({'detail': f'La nueva contraseña debe tener al menos {PASSWORD_MIN_LEN} caracteres.'}, status=400)
+
+        usuario = self.get_object()
+        usuario.password_hash = make_password(nueva)
+        usuario.save(update_fields=['password_hash'])
+        return Response({'detail': f'Contraseña de {usuario.username} actualizada correctamente.'})
 
     @action(detail=False, methods=['get'])
     def perfil_conductor(self, request):
