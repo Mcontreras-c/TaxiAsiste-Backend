@@ -1,10 +1,12 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from taxiasiste.login import LoginView, LogoutView
-from taxiasiste.views import geocodificar, ping, ruta
+from taxiasiste.views import estimar_tarifa, geocodificar, ping, ruta
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -16,9 +18,16 @@ urlpatterns = [
     path('api/ping/', ping, name='ping'),
     path('api/geocodificar/', geocodificar, name='geocodificar'),
     path('api/ruta/', ruta, name='ruta'),
+    path('api/estimar_tarifa/', estimar_tarifa, name='estimar-tarifa'),
     path('api/', include('taxiasiste.usuarios.urls')),
     path('api/', include('taxiasiste.socios.urls')),
     path('api/', include('taxiasiste.moviles.urls')),
     path('api/', include('taxiasiste.solicitudes.urls')),
     path('api/', include('taxiasiste.reportes.urls')),
+    path('api/', include('taxiasiste.agenda.urls')),
 ]
+
+if settings.DEBUG:
+    # En produccion esto lo sirve nginx directo (alias /media/) -- ver
+    # project_vps_infra en las notas del servidor cuando se despliegue.
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

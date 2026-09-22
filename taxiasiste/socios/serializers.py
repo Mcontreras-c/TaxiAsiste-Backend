@@ -7,6 +7,11 @@ from .models import Bloqueo, Cuota, Socio, TesoreriaMovimiento
 class SocioSerializer(serializers.ModelSerializer):
     nombre_completo = serializers.SerializerMethodField()
     cuotas_vencidas = serializers.SerializerMethodField()
+    # La columna tiene DEFAULT CURRENT_DATE a nivel de Postgres, pero el
+    # modelo es managed=False y Django no lo sabe -- sin esto, DRF exige
+    # fecha_ingreso en el body y "Nuevo socio" fallaba siempre con un 400
+    # generico ("Error al guardar.") que no decia por que.
+    fecha_ingreso = serializers.DateField(required=False, default=timezone.localdate)
 
     class Meta:
         model = Socio
