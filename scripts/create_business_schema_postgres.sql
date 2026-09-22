@@ -180,3 +180,31 @@ CREATE TABLE "HISTORIAL_EVENTOS" (
         'SOLICITUD','BLOQUEO','CUOTA','MOVIL','SOCIO','USUARIO','PASAJERO','FILA_BASE'
     ))
 );
+
+-- EVENTOS_AGENDA
+CREATE SEQUENCE seq_eventos_agenda START WITH 1 INCREMENT BY 1;
+
+CREATE TABLE "EVENTOS_AGENDA" (
+    id_evento_agenda INTEGER PRIMARY KEY,
+    titulo VARCHAR(150) NOT NULL,
+    descripcion VARCHAR(1000),
+    fecha_hora TIMESTAMP NOT NULL,
+    lugar VARCHAR(200),
+    id_usuario_creador INTEGER REFERENCES "USUARIOS"(id_usuario),
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE "EVENTOS_AGENDA" IS 'Reuniones y fechas importantes de la secretaria';
+
+-- DOCUMENTOS_AGENDA
+CREATE SEQUENCE seq_documentos_agenda START WITH 1 INCREMENT BY 1;
+
+CREATE TABLE "DOCUMENTOS_AGENDA" (
+    id_documento INTEGER PRIMARY KEY,
+    nombre VARCHAR(200) NOT NULL,
+    archivo VARCHAR(255) NOT NULL,
+    categoria VARCHAR(50),
+    id_usuario_subio INTEGER REFERENCES "USUARIOS"(id_usuario),
+    fecha_subida TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    tamano_bytes INTEGER
+);
+COMMENT ON TABLE "DOCUMENTOS_AGENDA" IS 'Documentos digitalizados de la secretaria';
