@@ -21,4 +21,5 @@ urlpatterns = [
     path('api/', include('taxiasiste.moviles.urls')),
     path('api/', include('taxiasiste.solicitudes.urls')),
     path('api/', include('taxiasiste.reportes.urls')),
+    path('api/', include('taxiasiste.agenda.urls')),
 ]

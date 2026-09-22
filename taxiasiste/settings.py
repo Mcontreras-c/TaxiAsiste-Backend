@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'taxiasiste.solicitudes',
     'taxiasiste.moviles',
     'taxiasiste.reportes',
+    'taxiasiste.agenda',
 ]
 
 MIDDLEWARE = [
