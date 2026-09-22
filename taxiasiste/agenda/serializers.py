@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import EventoAgenda
+from .models import DocumentoAgenda, EventoAgenda
 
 
 class EventoAgendaSerializer(serializers.ModelSerializer):
@@ -21,3 +21,29 @@ class EventoAgendaSerializer(serializers.ModelSerializer):
             'fecha_creacion',
         ]
         read_only_fields = ['id_evento_agenda']
+
+
+class DocumentoAgendaSerializer(serializers.ModelSerializer):
+    usuario_subio_nombre = serializers.CharField(source='usuario_subio.username', read_only=True)
+    fecha_subida = serializers.DateTimeField(required=False, default=timezone.now)
+    tamano_bytes = serializers.IntegerField(required=False)
+
+    class Meta:
+        model = DocumentoAgenda
+        fields = [
+            'id_documento',
+            'nombre',
+            'archivo',
+            'categoria',
+            'usuario_subio',
+            'usuario_subio_nombre',
+            'fecha_subida',
+            'tamano_bytes',
+        ]
+        read_only_fields = ['id_documento']
+
+    def create(self, validated_data):
+        archivo = validated_data.get('archivo')
+        if archivo is not None:
+            validated_data['tamano_bytes'] = archivo.size
+        return super().create(validated_data)

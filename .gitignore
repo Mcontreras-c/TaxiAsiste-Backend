@@ -30,3 +30,6 @@ desktop.ini
 
 # pytest
 .pytest_cache/
+
+# Archivos subidos por usuarios (documentos de la agenda, etc.)
+media/
