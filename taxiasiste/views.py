@@ -1,3 +1,5 @@
+import math
+
 import requests
 from django.conf import settings
 from django.utils import timezone
@@ -160,6 +162,99 @@ def calcular_ruta(origen_lat, origen_lng, destino_lat, destino_lng):
     if data.get('status') != 'OK' or not data.get('routes'):
         return None, 'sin_ruta'
     return data, None
+
+
+def calcular_ruta_a_destino_texto(origen_lat, origen_lng, destino_texto):
+    """
+    Como calcular_ruta, pero con el destino como texto en vez de lat/lng --
+    Directions API acepta direcciones de texto directamente, asi que no hace
+    falta geocodificar el hospital aparte. Usado por estimar_tarifa, ya que
+    TaxiAsiste solo traslada a un destino fijo (ver DESTINO_UNICO).
+    """
+    try:
+        resp = requests.get(
+            DIRECTIONS_URL,
+            params={
+                'origin': f'{origen_lat},{origen_lng}',
+                'destination': destino_texto,
+                'mode': 'driving',
+                'region': 'cl',
+                'key': settings.GOOGLE_MAPS_API_KEY,
+            },
+            timeout=6,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException:
+        return None, 'red'
+
+    if data.get('status') != 'OK' or not data.get('routes'):
+        return None, 'sin_ruta'
+    return data, None
+
+
+# Tarifa de taxi basico RM: la bajada de bandera y el valor de cada "tic" los
+# fija el MTT ($500 y $200 respectivamente); el tramo de distancia por tic se
+# puede elegir dentro del margen que da el MTT (190 a 220 m) -- este
+# sindicato usa 200 m. El tic de espera (tiempo detenido/trafico) vale lo
+# mismo, cada 60 s. Como ambos tics valen igual, el cruce entre cobrar por
+# distancia o por tiempo se desprende de esos mismos numeros: 200 m / 60 s =
+# 12 km/h -- por eso la estimacion usa el mayor entre "cuanto marcaria si
+# fuera puro avance" y "cuanto marcaria si fuera puro tiempo detenido", igual
+# que hace el taximetro real cuando el viaje mezcla tramos fluidos con
+# tramos de trafico.
+BAJADA_DE_BANDERA = 500
+VALOR_TIC = 200
+METROS_POR_TIC = 200
+SEGUNDOS_POR_TIC = 60
+
+
+def calcular_tarifa_estimada(distancia_m, duracion_s):
+    cargo_por_distancia = math.ceil(distancia_m / METROS_POR_TIC) * VALOR_TIC
+    cargo_por_tiempo = math.ceil(duracion_s / SEGUNDOS_POR_TIC) * VALOR_TIC
+    return BAJADA_DE_BANDERA + max(cargo_por_distancia, cargo_por_tiempo)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def estimar_tarifa(request):
+    """
+    Estima cuanto deberia marcar el taximetro para un traslado desde
+    'origen_lat'/'origen_lng' hasta el hospital (destino fijo de
+    TaxiAsiste) -- pensado para que Central pueda responder "¿cuánto sale
+    aprox?" cuando alguien llama a pedir un taxi, antes de crear la
+    solicitud.
+
+    Es una ESTIMACION: el monto real del taximetro depende del trafico del
+    momento y la ruta exacta que tome el conductor.
+    """
+    from taxiasiste.solicitudes.models import DESTINO_UNICO
+
+    try:
+        origen_lat = float(request.query_params['origen_lat'])
+        origen_lng = float(request.query_params['origen_lng'])
+    except (KeyError, ValueError):
+        return Response(
+            {'detail': 'Se requieren origen_lat y origen_lng (numericos).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    data, error = calcular_ruta_a_destino_texto(origen_lat, origen_lng, DESTINO_UNICO)
+    if error == 'red':
+        return Response({'detail': 'Servicio de ruteo no disponible.'}, status=status.HTTP_502_BAD_GATEWAY)
+    if error:
+        return Response({'detail': 'No se pudo calcular una ruta desde ese origen.'}, status=status.HTTP_404_NOT_FOUND)
+
+    leg = data['routes'][0]['legs'][0]
+    distancia_m = leg['distance']['value']
+    duracion_s = leg['duration']['value']
+
+    return Response({
+        'distancia_m': distancia_m,
+        'duracion_s': duracion_s,
+        'tarifa_estimada': calcular_tarifa_estimada(distancia_m, duracion_s),
+        'bajada_de_bandera': BAJADA_DE_BANDERA,
+    })
 
 
 @api_view(['GET'])
