@@ -5,7 +5,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
-from .emails import enviar_clave_temporal
+from .emails import enviar_clave_temporal, enviar_credenciales_reenviadas
 from .models import Rol, Usuario
 from .passwords import generar_clave
 from .permissions import EsAdministrador
@@ -29,7 +29,7 @@ class UsuarioViewSet(ModelViewSet):
     def get_permissions(self):
         if self.action == 'olvide_password':
             return [AllowAny()]
-        if self.action in ('create', 'update', 'partial_update', 'destroy', 'resetear_password'):
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'resetear_password', 'reenviar_credenciales'):
             return [EsAdministrador()]
         return [IsAuthenticated()]
 
@@ -69,6 +69,33 @@ class UsuarioViewSet(ModelViewSet):
         usuario.password_hash = make_password(nueva)
         usuario.save(update_fields=['password_hash'])
         return Response({'detail': f'Contraseña de {usuario.username} actualizada correctamente.'})
+
+    @action(detail=True, methods=['post'])
+    def reenviar_credenciales(self, request, pk=None):
+        """
+        Un Administrador genera una clave nueva para una cuenta existente y se
+        la manda por correo (con el link de la app o del panel segun el rol).
+        La clave nunca se devuelve ni se muestra: solo viaja por el correo.
+        """
+        usuario = self.get_object()
+        if not usuario.email:
+            return Response({'detail': 'Este usuario no tiene correo registrado.'}, status=400)
+
+        clave = generar_clave()
+        clave_anterior = usuario.password_hash
+        usuario.password_hash = make_password(clave)
+        usuario.save(update_fields=['password_hash'])
+
+        if not enviar_credenciales_reenviadas(usuario, clave):
+            # Si el correo no salio, se restaura la clave anterior: sino la
+            # persona quedaria con una clave que nadie conoce.
+            usuario.password_hash = clave_anterior
+            usuario.save(update_fields=['password_hash'])
+            return Response(
+                {'detail': 'No se pudo enviar el correo. La clave no se modificó.'},
+                status=502,
+            )
+        return Response({'detail': f'Credenciales enviadas a {usuario.email}.'})
 
     @action(detail=False, methods=['post'])
     def olvide_password(self, request):
