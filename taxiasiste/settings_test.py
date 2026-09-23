@@ -17,3 +17,6 @@ from decouple import config
 from .settings import *  # noqa: F401,F403
 
 DATABASES['default']['NAME'] = config('POSTGRES_TEST_DB', default='taxiasiste_test')
+
+# La suite nunca debe intentar mandar correo real por SMTP.
+EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'

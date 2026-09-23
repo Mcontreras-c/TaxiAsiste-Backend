@@ -1,5 +1,6 @@
 import decimal
 
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import FilaBase, Movil, UbicacionActual
@@ -36,6 +37,13 @@ class MovilSerializer(serializers.ModelSerializer):
     socio_telefono = serializers.CharField(source='socio.telefono', read_only=True)
     lat            = serializers.DecimalField(source='ubicacion_actual.lat', max_digits=10, decimal_places=6, read_only=True, default=None, coerce_to_string=False)
     lng            = serializers.DecimalField(source='ubicacion_actual.lng', max_digits=10, decimal_places=6, read_only=True, default=None, coerce_to_string=False)
+    # La columna tiene DEFAULT CURRENT_DATE a nivel de Postgres, pero el
+    # modelo es managed=False y Django no lo sabe -- sin esto, DRF exige
+    # fecha_registro en el body y "Nuevo socio" (con vehiculo) o "Agregar
+    # vehiculo" fallan siempre con un 400 generico ("Error al guardar el
+    # vehiculo.") que no dice por que. Mismo bug que ya se corrigio en
+    # SocioSerializer.fecha_ingreso.
+    fecha_registro = serializers.DateField(required=False, default=timezone.localdate)
 
     class Meta:
         model = Movil

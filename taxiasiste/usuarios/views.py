@@ -1,10 +1,14 @@
 from django.contrib.auth.hashers import check_password, make_password
 from django.utils import timezone
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from .emails import enviar_clave_temporal
 from .models import Rol, Usuario
+from .passwords import generar_clave
+from .permissions import EsAdministrador
 from .serializers import RolSerializer, UsuarioSerializer
 
 PASSWORD_MIN_LEN = 6
@@ -16,8 +20,18 @@ class RolViewSet(ReadOnlyModelViewSet):
 
 
 class UsuarioViewSet(ModelViewSet):
-    queryset = Usuario.objects.select_related('rol').all()
+    # select_related('socio'): reverse OneToOne (Socio.usuario) -- evita una
+    # query aparte por fila cuando UsuarioSerializer.get_nombre_completo
+    # busca el socio vinculado de cada usuario en el listado.
+    queryset = Usuario.objects.select_related('rol', 'socio').all()
     serializer_class = UsuarioSerializer
+
+    def get_permissions(self):
+        if self.action == 'olvide_password':
+            return [AllowAny()]
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'resetear_password'):
+            return [EsAdministrador()]
+        return [IsAuthenticated()]
 
     @action(detail=False, methods=['get'])
     def me(self, request):
@@ -47,9 +61,6 @@ class UsuarioViewSet(ModelViewSet):
     @action(detail=True, methods=['post'])
     def resetear_password(self, request, pk=None):
         """Un Administrador resetea la contraseña de cualquier usuario, sin pedir la actual."""
-        if request.user.rol.nombre_rol != 'Administrador':
-            return Response({'detail': 'Solo un administrador puede resetear contraseñas.'}, status=403)
-
         nueva = request.data.get('password_nueva', '')
         if len(nueva) < PASSWORD_MIN_LEN:
             return Response({'detail': f'La nueva contraseña debe tener al menos {PASSWORD_MIN_LEN} caracteres.'}, status=400)
@@ -58,6 +69,26 @@ class UsuarioViewSet(ModelViewSet):
         usuario.password_hash = make_password(nueva)
         usuario.save(update_fields=['password_hash'])
         return Response({'detail': f'Contraseña de {usuario.username} actualizada correctamente.'})
+
+    @action(detail=False, methods=['post'])
+    def olvide_password(self, request):
+        """
+        Vista publica de "olvide mi contrasena". Siempre responde el mismo
+        mensaje generico, exista o no el correo, para no filtrar que correos
+        estan registrados.
+        """
+        email = (request.data.get('email') or '').strip()
+        mensaje_generico = 'Si la casilla de correo existe, te llegará un correo con una clave temporal.'
+
+        if email:
+            usuario = Usuario.objects.filter(email__iexact=email).select_related('rol').first()
+            if usuario:
+                clave_temporal = generar_clave()
+                usuario.password_hash = make_password(clave_temporal)
+                usuario.save(update_fields=['password_hash'])
+                enviar_clave_temporal(usuario, clave_temporal)
+
+        return Response({'detail': mensaje_generico})
 
     @action(detail=False, methods=['get'])
     def perfil_conductor(self, request):
