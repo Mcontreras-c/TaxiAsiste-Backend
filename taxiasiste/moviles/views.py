@@ -147,11 +147,24 @@ class UbicacionActualViewSet(ReadOnlyModelViewSet):
     def get_queryset(self):
         """Solo moviles que reportaron posicion en los ultimos SEGUNDOS_ONLINE (online)."""
         limite = timezone.now() - timedelta(seconds=SEGUNDOS_ONLINE)
-        return (
+        queryset = (
             UbicacionActual.objects
             .select_related('movil__socio')
             .filter(actualizado_en__gte=limite)
         )
+
+        # Un conductor con un viaje activo solo ve su propio movil: no debe
+        # conocer la posicion del resto de la flota mientras trabaja. No basta
+        # con ocultarlos en la app, porque este endpoint los entregaria igual.
+        usuario = self.request.user
+        if usuario.rol.nombre_rol == 'Conductor':
+            from taxiasiste.solicitudes.models import Solicitud
+
+            if Solicitud.objects.filter(
+                movil__socio__usuario=usuario, estado__in=['ASIGNADO', 'EN_CURSO'],
+            ).exists():
+                queryset = queryset.filter(movil__socio__usuario=usuario)
+        return queryset
 
     @action(detail=False, methods=['post', 'delete'], url_path='mia')
     def mia(self, request):
