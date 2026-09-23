@@ -30,6 +30,9 @@ DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='TaxiAsiste <noreply@t
 # Link de descarga directa del APK (distribucion temporal antes de Play Store).
 APK_DOWNLOAD_URL = config('APK_DOWNLOAD_URL', default='')
 
+# Direccion del panel web, para el correo de bienvenida del personal administrativo.
+PANEL_WEB_URL = config('PANEL_WEB_URL', default='http://45.236.130.233')
+
 ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
