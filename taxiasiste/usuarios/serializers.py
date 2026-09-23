@@ -3,9 +3,9 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
+from .emails import enviar_credenciales_iniciales
 from .models import Rol, Usuario
-
-PASSWORD_MIN_LEN = 6
+from .passwords import generar_clave
 
 
 class RolSerializer(serializers.ModelSerializer):
@@ -22,10 +22,11 @@ class UsuarioSerializer(serializers.ModelSerializer):
         write_only=True,
     )
     nombre_completo = serializers.SerializerMethodField()
-    # Solo se usan al crear (ver create() mas abajo) -- nunca se devuelven ni
-    # se pueden tocar en un update (para eso estan cambiar_password/
-    # resetear_password en UsuarioViewSet, que si validan permisos).
-    password = serializers.CharField(write_only=True, required=False, min_length=PASSWORD_MIN_LEN)
+    # id_socio: solo al crear un Conductor -- vincula el usuario nuevo a un
+    # socio existente sin login todavia (ver validate_id_socio/create()).
+    # La contrasena NUNCA la manda el cliente: el servidor la genera, la
+    # envia por correo (enviar_credenciales_iniciales) y no vuelve en la
+    # respuesta -- por eso no hay campo 'password' aca.
     id_socio = serializers.IntegerField(
         write_only=True, required=False, allow_null=True,
         help_text='Si el rol es Conductor, vincula el usuario nuevo a este socio '
@@ -46,7 +47,6 @@ class UsuarioSerializer(serializers.ModelSerializer):
             'estado',
             'fecha_creacion',
             'ultimo_acceso',
-            'password',
             'id_socio',
         ]
         read_only_fields = ['id_usuario', 'fecha_creacion', 'ultimo_acceso']
@@ -71,8 +71,10 @@ class UsuarioSerializer(serializers.ModelSerializer):
         return obj.username
 
     def validate(self, attrs):
-        if self.instance is None and not attrs.get('password'):
-            raise serializers.ValidationError({'password': 'La contraseña es requerida.'})
+        # El correo es el UNICO canal de entrega de la clave generada -- sin
+        # el, la cuenta quedaria creada sin forma de comunicar el acceso.
+        if self.instance is None and not attrs.get('email'):
+            raise serializers.ValidationError({'email': 'El correo es requerido para poder enviar la contraseña.'})
         return attrs
 
     def validate_id_socio(self, value):
@@ -88,9 +90,9 @@ class UsuarioSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         from taxiasiste.socios.models import Socio
 
-        password = validated_data.pop('password')
         id_socio = validated_data.pop('id_socio', None)
-        validated_data['password_hash'] = make_password(password)
+        clave = generar_clave()
+        validated_data['password_hash'] = make_password(clave)
         validated_data.setdefault('fecha_creacion', timezone.localdate())
 
         usuario = Usuario.objects.create(**validated_data)
@@ -105,4 +107,5 @@ class UsuarioSerializer(serializers.ModelSerializer):
             if not actualizado:
                 raise serializers.ValidationError({'id_socio': 'Ese socio ya no está disponible.'})
 
+        enviar_credenciales_iniciales(usuario, clave)
         return usuario

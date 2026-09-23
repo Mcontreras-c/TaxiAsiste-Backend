@@ -16,6 +16,20 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 # Clave "TaxiAsiste - Backend" (Geocoding API + Directions API) -- ver taxiasiste/views.py
 GOOGLE_MAPS_API_KEY = config('GOOGLE_MAPS_API_KEY', default='')
 
+# Correo saliente (bienvenida + recuperacion de clave) via Gmail -- ver
+# taxiasiste/usuarios/emails.py. EMAIL_HOST_PASSWORD es una "clave de app"
+# de Gmail (16 caracteres), no la clave normal de la cuenta.
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='TaxiAsiste <noreply@taxiasiste.cl>')
+
+# Link de descarga directa del APK (distribucion temporal antes de Play Store).
+APK_DOWNLOAD_URL = config('APK_DOWNLOAD_URL', default='')
+
 ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [

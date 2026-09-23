@@ -1,5 +1,4 @@
 import pytest
-from django.contrib.auth.hashers import check_password
 
 from taxiasiste.socios.models import Socio
 from taxiasiste.usuarios.models import Usuario
@@ -11,7 +10,7 @@ def test_no_administrador_no_puede_crear_usuario(autenticar, crear_usuario):
     client = autenticar(central)
 
     resp = client.post('/api/usuarios/', {
-        'id_rol': central.rol_id, 'username': 'nuevo1', 'password': 'Clave123',
+        'id_rol': central.rol_id, 'username': 'nuevo1', 'email': 'nuevo1@example.cl',
     })
 
     assert resp.status_code == 403
@@ -19,7 +18,7 @@ def test_no_administrador_no_puede_crear_usuario(autenticar, crear_usuario):
 
 
 @pytest.mark.django_db
-def test_crear_personal_del_sindicato(autenticar, crear_usuario, crear_rol):
+def test_crear_personal_del_sindicato(autenticar, crear_usuario, crear_rol, mailoutbox):
     admin = crear_usuario('adminCrea1', rol_nombre='Administrador')
     rol_tesorero = crear_rol('Tesorero')
     client = autenticar(admin)
@@ -30,40 +29,43 @@ def test_crear_personal_del_sindicato(autenticar, crear_usuario, crear_rol):
         'email': 'carolina.munoz@example.cl',
         'nombre': 'Carolina',
         'apellido': 'Muñoz',
-        'password': 'Clave123',
     })
 
     assert resp.status_code == 201, resp.data
     creado = Usuario.objects.get(username='cmunoz')
     assert creado.rol.nombre_rol == 'Tesorero'
-    assert check_password('Clave123', creado.password_hash)
+    # La contrasena la genera el servidor -- nunca la manda el cliente ni
+    # vuelve en la respuesta -- solo se entrega por correo.
+    assert creado.password_hash
+    assert 'password' not in resp.data
     # nombre_completo se arma con nombre/apellido propios (sin socio vinculado).
     assert resp.data['nombre_completo'] == 'Carolina Muñoz'
-    # password nunca vuelve en la respuesta.
-    assert 'password' not in resp.data
+    assert len(mailoutbox) == 1
+    assert mailoutbox[0].to == ['carolina.munoz@example.cl']
+    assert 'cmunoz' in mailoutbox[0].body
 
 
 @pytest.mark.django_db
-def test_crear_usuario_sin_password_falla(autenticar, crear_usuario, crear_rol):
+def test_crear_usuario_sin_email_falla(autenticar, crear_usuario, crear_rol):
     admin = crear_usuario('adminCrea2', rol_nombre='Administrador')
     rol_central = crear_rol('Central')
     client = autenticar(admin)
 
-    resp = client.post('/api/usuarios/', {'id_rol': rol_central.pk, 'username': 'sinpass'})
+    resp = client.post('/api/usuarios/', {'id_rol': rol_central.pk, 'username': 'sinemail'})
 
     assert resp.status_code == 400
-    assert not Usuario.objects.filter(username='sinpass').exists()
+    assert not Usuario.objects.filter(username='sinemail').exists()
 
 
 @pytest.mark.django_db
-def test_crear_conductor_vincula_al_socio_y_usa_su_nombre(autenticar, crear_usuario, crear_rol, crear_socio):
+def test_crear_conductor_vincula_al_socio_y_usa_su_nombre(autenticar, crear_usuario, crear_rol, crear_socio, mailoutbox):
     admin = crear_usuario('adminCrea3', rol_nombre='Administrador')
     rol_conductor = crear_rol('Conductor')
     socio = crear_socio('19191919-1', nombre='Juan', apellido='Soto')
     client = autenticar(admin)
 
     resp = client.post('/api/usuarios/', {
-        'id_rol': rol_conductor.pk, 'username': 'jsoto', 'password': 'Clave123', 'id_socio': socio.pk,
+        'id_rol': rol_conductor.pk, 'username': 'jsoto', 'email': 'jsoto@example.cl', 'id_socio': socio.pk,
     })
 
     assert resp.status_code == 201, resp.data
@@ -73,6 +75,7 @@ def test_crear_conductor_vincula_al_socio_y_usa_su_nombre(autenticar, crear_usua
     # nombre_completo prioriza el nombre del Socio, no un nombre/apellido
     # propio de Usuario (que ademas ni se mando en el body).
     assert resp.data['nombre_completo'] == 'Juan Soto'
+    assert len(mailoutbox) == 1
 
 
 @pytest.mark.django_db
@@ -84,7 +87,7 @@ def test_crear_conductor_con_socio_ya_vinculado_falla(autenticar, crear_usuario,
     client = autenticar(admin)
 
     resp = client.post('/api/usuarios/', {
-        'id_rol': rol_conductor.pk, 'username': 'otrousuario', 'password': 'Clave123', 'id_socio': socio.pk,
+        'id_rol': rol_conductor.pk, 'username': 'otrousuario', 'email': 'otro@example.cl', 'id_socio': socio.pk,
     })
 
     assert resp.status_code == 400
@@ -98,7 +101,7 @@ def test_crear_conductor_con_socio_inexistente_falla(autenticar, crear_usuario, 
     client = autenticar(admin)
 
     resp = client.post('/api/usuarios/', {
-        'id_rol': rol_conductor.pk, 'username': 'usuario2', 'password': 'Clave123', 'id_socio': 999999,
+        'id_rol': rol_conductor.pk, 'username': 'usuario2', 'email': 'usuario2@example.cl', 'id_socio': 999999,
     })
 
     assert resp.status_code == 400
