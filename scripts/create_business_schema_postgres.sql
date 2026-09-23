@@ -35,6 +35,8 @@ CREATE TABLE "USUARIOS" (
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     email VARCHAR(100) UNIQUE,
+    nombre VARCHAR(100),
+    apellido VARCHAR(100),
     estado VARCHAR(20) DEFAULT 'ACTIVO',
     fecha_creacion DATE DEFAULT CURRENT_DATE,
     ultimo_acceso TIMESTAMP,

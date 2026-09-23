@@ -44,6 +44,12 @@ class Usuario(models.Model):
         db_comment='Hash gestionado por Django',
     )
     email = models.CharField(unique=True, max_length=100, blank=True, null=True)
+    nombre = models.CharField(
+        max_length=100, blank=True, null=True,
+        db_comment='Solo para usuarios sin Socio vinculado (personal del sindicato) -- '
+                    'un Conductor muestra el nombre de su Socio, no este campo.',
+    )
+    apellido = models.CharField(max_length=100, blank=True, null=True)
     estado = models.CharField(
         max_length=20,
         default='ACTIVO',

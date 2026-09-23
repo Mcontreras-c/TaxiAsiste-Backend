@@ -18,6 +18,9 @@ INSERT INTO "ROLES" (id_rol, nombre_rol, descripcion, activo) VALUES
 INSERT INTO "ROLES" (id_rol, nombre_rol, descripcion, activo) VALUES
   (nextval('seq_roles'), 'Paletero', 'Paletero de base', 1)
   ON CONFLICT (nombre_rol) DO NOTHING;
+INSERT INTO "ROLES" (id_rol, nombre_rol, descripcion, activo) VALUES
+  (nextval('seq_roles'), 'Secretario', 'Secretaria del sindicato -- agenda y documentos', 1)
+  ON CONFLICT (nombre_rol) DO NOTHING;
 
 -- ===================== "USUARIOS" =====================
 -- Password real de cada uno = <username>123 (ej: admin -> admin123)

@@ -5,9 +5,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from .models import Rol, Usuario
-from .serializers import RolSerializer, UsuarioSerializer
-
-PASSWORD_MIN_LEN = 6
+from .serializers import PASSWORD_MIN_LEN, RolSerializer, UsuarioSerializer
 
 
 class RolViewSet(ReadOnlyModelViewSet):
@@ -16,8 +14,18 @@ class RolViewSet(ReadOnlyModelViewSet):
 
 
 class UsuarioViewSet(ModelViewSet):
-    queryset = Usuario.objects.select_related('rol').all()
+    # select_related('socio'): reverse OneToOne (Socio.usuario) -- evita una
+    # query aparte por fila cuando UsuarioSerializer.get_nombre_completo
+    # busca el socio vinculado de cada usuario en el listado.
+    queryset = Usuario.objects.select_related('rol', 'socio').all()
     serializer_class = UsuarioSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Alta de usuario -- solo un Administrador puede crear cuentas
+        nuevas (mismo criterio de sensibilidad que resetear_password)."""
+        if request.user.rol.nombre_rol != 'Administrador':
+            return Response({'detail': 'Solo un administrador puede crear usuarios.'}, status=403)
+        return super().create(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
     def me(self, request):
