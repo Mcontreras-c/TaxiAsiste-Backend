@@ -37,6 +37,8 @@ def _directions(*rutas):
 def _fake_get(capturadas, rutas):
     def fake(url, params=None, **kw):
         capturadas.append((url, params))
+        if 'textsearch' in url:
+            return _Resp({'status': 'REQUEST_DENIED', 'results': []})  # Places no habilitado -> cae a Geocoding
         return _geocode(-33.5, -70.7) if 'geocode' in url else _directions(*rutas)
     return fake
 
@@ -88,3 +90,30 @@ def test_sin_destino_es_400(autenticar, crear_usuario):
 @pytest.mark.django_db
 def test_requiere_autenticacion(client):
     assert client.get('/api/cotizar_tarifa/', {'destino_texto': 'x'}).status_code == 401
+
+
+@pytest.mark.django_db
+def test_nombre_de_lugar_se_busca_con_places(autenticar, crear_usuario, monkeypatch):
+    """"Metro Pudahuel" debe resolverse como lugar (Places), no como la calle que devuelve Geocoding."""
+    llamadas = []
+
+    def fake(url, params=None, **kw):
+        llamadas.append((url, params))
+        if 'textsearch' in url:
+            return _Resp({'status': 'OK', 'results': [{
+                'name': 'Metro Pudahuel',
+                'formatted_address': 'Av. San Pablo con Teniente Cruz, Pudahuel',
+                'geometry': {'location': {'lat': -33.4467, 'lng': -70.7595}},
+            }]})
+        assert 'geocode' not in url  # con resultado de Places no se usa Geocoding
+        return _directions(('Ruta A', 5000, 600))
+
+    monkeypatch.setattr('taxiasiste.views.requests.get', fake)
+    client = autenticar(crear_usuario('cotiza4', rol_nombre='Conductor'))
+
+    resp = client.get('/api/cotizar_tarifa/', {'destino_texto': 'Metro Pudahuel'})
+
+    assert resp.status_code == 200
+    directions = [p for u, p in llamadas if 'directions' in u][0]
+    assert directions['destination'] == '-33.4467,-70.7595'
+    assert resp.data['destino']['direccion'] == 'Metro Pudahuel, Av. San Pablo con Teniente Cruz, Pudahuel'
