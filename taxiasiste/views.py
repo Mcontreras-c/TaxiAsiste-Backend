@@ -222,14 +222,58 @@ def calcular_tarifa_estimada(distancia_m, duracion_s):
 BOUNDS_RM = '-34.3,-71.7|-32.9,-69.9'
 
 
+PLACES_TEXTSEARCH_URL = 'https://maps.googleapis.com/maps/api/place/textsearch/json'
+
+
+def _buscar_lugar(texto):
+    """
+    Busca lo escrito con Places Text Search (el buscador de Google Maps):
+    entiende nombres de lugar como "Metro Pudahuel", que Geocoding no ubica
+    bien (devuelve una calle cercana). Devuelve (lat, lng, direccion) o None
+    si no hay resultado o el servicio no esta disponible/habilitado -- en ese
+    caso quien llama cae al geocodificador de direcciones.
+    """
+    try:
+        resp = requests.get(
+            PLACES_TEXTSEARCH_URL,
+            params={
+                'query': texto,
+                'region': 'cl',
+                'language': 'es',
+                'location': '-33.45,-70.67',  # centro de Santiago: sesga, no restringe
+                'radius': 50000,
+                'key': settings.GOOGLE_MAPS_API_KEY,
+            },
+            timeout=6,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        return None
+
+    resultados = data.get('results') or []
+    if data.get('status') != 'OK' or not resultados:
+        return None
+
+    r = resultados[0]
+    ubicacion = r['geometry']['location']
+    nombre, direccion = r.get('name'), r.get('formatted_address', '')
+    etiqueta = f'{nombre}, {direccion}' if nombre and nombre not in direccion else direccion
+    return ubicacion['lat'], ubicacion['lng'], etiqueta
+
+
 def _resolver_punto(texto, lat, lng):
     """
     Un extremo del viaje como (punto, error). Si viene lat/lng se usa tal
-    cual (GPS); si viene texto se geocodifica con sesgo a la RM, para poder
-    mostrar la direccion que Google entendio.
+    cual (GPS); si viene texto primero se busca como lugar (Places) y, si eso
+    no da resultado, se geocodifica como direccion con sesgo a la RM. Siempre
+    se devuelve la direccion que Google entendio, para que se pueda verificar.
     """
     if lat is not None and lng is not None:
         return {'lat': lat, 'lng': lng, 'direccion': None}, None
+    lugar = _buscar_lugar(texto)
+    if lugar:
+        return {'lat': lugar[0], 'lng': lugar[1], 'direccion': lugar[2]}, None
     g_lat, g_lng, formateada, error = geocodificar_direccion(texto, bounds=BOUNDS_RM)
     if error:
         return None, error
