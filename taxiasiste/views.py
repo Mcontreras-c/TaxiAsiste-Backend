@@ -62,7 +62,7 @@ def ping(request):
     })
 
 
-def geocodificar_direccion(direccion):
+def geocodificar_direccion(direccion, bounds=None):
     """
     Convierte una direccion en texto a lat/lng usando Google Geocoding API.
     Helper compartido por la vista `geocodificar` (usada por el Frontend para
@@ -87,6 +87,7 @@ def geocodificar_direccion(direccion):
                 'address': direccion,
                 'region': 'cl',
                 'components': 'country:CL',
+                **({'bounds': bounds} if bounds else {}),
                 'key': settings.GOOGLE_MAPS_API_KEY,
             },
             timeout=6,
@@ -213,6 +214,141 @@ def calcular_tarifa_estimada(distancia_m, duracion_s):
     cargo_por_distancia = math.ceil(distancia_m / METROS_POR_TIC) * VALOR_TIC
     cargo_por_tiempo = math.ceil(duracion_s / SEGUNDOS_POR_TIC) * VALOR_TIC
     return BAJADA_DE_BANDERA + max(cargo_por_distancia, cargo_por_tiempo)
+
+
+# Region Metropolitana (SW|NE): sesga la busqueda de direcciones escritas a
+# mano ("Av. Pajaritos 3000") hacia Santiago en vez de una calle homonima de
+# otra ciudad. Es solo un sesgo, no una restriccion.
+BOUNDS_RM = '-34.3,-71.7|-32.9,-69.9'
+
+
+def _resolver_punto(texto, lat, lng):
+    """
+    Un extremo del viaje como (punto, error). Si viene lat/lng se usa tal
+    cual (GPS); si viene texto se geocodifica con sesgo a la RM, para poder
+    mostrar la direccion que Google entendio.
+    """
+    if lat is not None and lng is not None:
+        return {'lat': lat, 'lng': lng, 'direccion': None}, None
+    g_lat, g_lng, formateada, error = geocodificar_direccion(texto, bounds=BOUNDS_RM)
+    if error:
+        return None, error
+    return {'lat': g_lat, 'lng': g_lng, 'direccion': formateada}, None
+
+
+def _parametro_float(params, nombre):
+    try:
+        return float(params[nombre])
+    except (KeyError, ValueError):
+        return None
+
+
+def _error_geocodificacion(error, extremo):
+    if error == 'red':
+        return Response({'detail': 'Servicio de geocodificacion no disponible.'}, status=status.HTTP_502_BAD_GATEWAY)
+    return Response(
+        {'detail': f'No se pudo ubicar la calle exacta del {extremo}. Prueba con calle y número.'},
+        status=status.HTTP_404_NOT_FOUND,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def cotizar_tarifa(request):
+    """
+    Cotizador de tarifa aproximada para responder "¿cuanto sale a X?" (en la
+    salida del hospital o con alguien haciendo parar en la calle).
+
+    Origen: por defecto el hospital (destino fijo de TaxiAsiste); o
+    'origen_lat'+'origen_lng' (ubicacion actual); o 'origen_texto'.
+    Destino: 'destino_texto' o 'destino_lat'+'destino_lng'.
+
+    Devuelve todas las rutas alternativas que da Google (la primera es la
+    recomendada) con su tarifa estimada cada una, ya que el valor depende de
+    por donde se vaya. Es una ESTIMACION: el taximetro real depende del
+    trafico y del camino que tome el conductor.
+    """
+    from taxiasiste.solicitudes.models import DESTINO_UNICO
+
+    q = request.query_params
+    o_lat, o_lng = _parametro_float(q, 'origen_lat'), _parametro_float(q, 'origen_lng')
+    d_lat, d_lng = _parametro_float(q, 'destino_lat'), _parametro_float(q, 'destino_lng')
+    origen_texto = (q.get('origen_texto') or '').strip()
+    destino_texto = (q.get('destino_texto') or '').strip()
+
+    if (d_lat is None or d_lng is None) and not destino_texto:
+        return Response({'detail': 'Indica la direccion de destino.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if o_lat is not None and o_lng is not None:
+        origen = {'lat': o_lat, 'lng': o_lng, 'direccion': None}
+    elif origen_texto:
+        origen, error = _resolver_punto(origen_texto, None, None)
+        if error:
+            return _error_geocodificacion(error, 'origen')
+    else:
+        origen = None  # hospital: Directions lo resuelve por texto
+
+    destino, error = _resolver_punto(destino_texto, d_lat, d_lng)
+    if error:
+        return _error_geocodificacion(error, 'destino')
+
+    origen_directions = f"{origen['lat']},{origen['lng']}" if origen else DESTINO_UNICO
+    try:
+        resp = requests.get(
+            DIRECTIONS_URL,
+            params={
+                'origin': origen_directions,
+                'destination': f"{destino['lat']},{destino['lng']}",
+                'mode': 'driving',
+                'alternatives': 'true',
+                'departure_time': 'now',
+                'region': 'cl',
+                'key': settings.GOOGLE_MAPS_API_KEY,
+            },
+            timeout=8,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException:
+        return Response({'detail': 'Servicio de ruteo no disponible.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+    if data.get('status') != 'OK' or not data.get('routes'):
+        return Response({'detail': 'No se encontro una ruta entre esos puntos.'}, status=status.HTTP_404_NOT_FOUND)
+
+    rutas = []
+    for r in data['routes']:
+        leg = r['legs'][0]
+        distancia_m = leg['distance']['value']
+        # Con departure_time Google entrega la duracion con el trafico actual,
+        # que es lo que va pesando el taximetro en los tics de espera.
+        duracion_s = (leg.get('duration_in_traffic') or leg['duration'])['value']
+        rutas.append({
+            'resumen': r.get('summary') or 'Ruta',
+            'distancia_m': distancia_m,
+            'duracion_s': duracion_s,
+            'tarifa_estimada': calcular_tarifa_estimada(distancia_m, duracion_s),
+            'geometry': {
+                'type': 'LineString',
+                'coordinates': _decodificar_polyline(r['overview_polyline']['points']),
+            },
+        })
+
+    primer_leg = data['routes'][0]['legs'][0]
+    if origen is None:
+        origen = {
+            'lat': primer_leg['start_location']['lat'],
+            'lng': primer_leg['start_location']['lng'],
+            'direccion': DESTINO_UNICO,
+        }
+    origen['direccion'] = origen['direccion'] or primer_leg.get('start_address')
+    destino['direccion'] = destino['direccion'] or primer_leg.get('end_address')
+
+    return Response({
+        'origen': origen,
+        'destino': destino,
+        'rutas': rutas,
+        'bajada_de_bandera': BAJADA_DE_BANDERA,
+    })
 
 
 @api_view(['GET'])
