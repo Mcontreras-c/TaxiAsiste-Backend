@@ -35,7 +35,9 @@ def dashboard(request):
     socios_bloqueados = Socio.objects.filter(estado_socio='BLOQUEADO').count()
 
     moviles_disponibles = Movil.objects.filter(estado_operativo='DISPONIBLE').count()
-    moviles_en_servicio = Movil.objects.filter(estado_operativo='EN_SERVICIO').count()
+    # EN_SERVICIO (voy a buscar al pasajero) y EN_VIAJE (pasajero a bordo) son
+    # ambos "movil ocupado con un servicio" para el resumen del panel.
+    moviles_en_servicio = Movil.objects.filter(estado_operativo__in=['EN_SERVICIO', 'EN_VIAJE']).count()
 
     solicitudes_hoy = Solicitud.objects.filter(fecha_hora__date=hoy).count()
     solicitudes_pendientes = Solicitud.objects.filter(estado='PENDIENTE').count()

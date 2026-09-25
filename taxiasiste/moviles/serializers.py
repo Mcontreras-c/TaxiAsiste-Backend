@@ -122,3 +122,19 @@ class UbicacionActualSerializer(serializers.ModelSerializer):
             'actualizado_en',
         ]
         read_only_fields = ['id_ubicacion', 'movil', 'actualizado_en']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        usuario = getattr(request, 'user', None)
+        rol = getattr(getattr(usuario, 'rol', None), 'nombre_rol', None)
+        if rol == 'Conductor':
+            # Un conductor ve a los demas solo por nombre: ni patente ni RUT
+            # (el __str__ del socio incluye el RUT entre parentesis). Su propio
+            # movil se entrega completo.
+            propio = instance.movil.socio.usuario_id == usuario.id_usuario
+            if not propio:
+                socio = instance.movil.socio
+                data['patente'] = ''
+                data['socio_nombre'] = f'{socio.nombre} {socio.apellido}'
+        return data
