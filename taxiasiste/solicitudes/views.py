@@ -27,6 +27,16 @@ class PasajeroViewSet(ModelViewSet):
     queryset = Pasajero.objects.filter(activo=1).order_by('apellido', 'nombre')
     serializer_class = PasajeroSerializer
 
+    @action(detail=False, methods=['get'])
+    def con_incumplimientos(self, request):
+        """
+        Pasajeros que no se presentaron a alguna reserva, los mas reincidentes
+        primero (para la vista de incumplimientos de Central). Incluye a los
+        bloqueados para pedir moviles a domicilio.
+        """
+        qs = Pasajero.objects.filter(incumplimientos__gt=0).order_by('-bloqueado_domicilio', '-incumplimientos', 'apellido')
+        return Response(PasajeroSerializer(qs, many=True).data)
+
     @action(detail=True, methods=['post'])
     def levantar_bloqueo(self, request, pk=None):
         """Un administrador levanta el bloqueo de un pasajero y reinicia su contador de incumplimientos."""

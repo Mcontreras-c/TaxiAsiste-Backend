@@ -143,6 +143,7 @@ de 2 h). Solo se registra: no hay sanciones automáticas.
 bloqueado **no puede** pedir reservas ni solicitudes por `TELEFONO`/`APP` (respuesta con `detail` listo para
 mostrar); en el hospital (`PRESENCIAL`) sí. Solo un `Administrador` lo levanta:
 `POST /api/pasajeros/{id}/levantar_bloqueo/` (también reinicia el contador).
+`GET /api/pasajeros/con_incumplimientos/` lista los pasajeros con al menos un incumplimiento (bloqueados primero).
 
 ## Auditoría
 

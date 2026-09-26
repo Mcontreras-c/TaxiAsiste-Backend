@@ -255,3 +255,19 @@ def test_registro_cuenta_tambien_las_soltadas_tarde(autenticar, crear_usuario, c
     registro = autenticar(crear_usuario('cen_l4', rol_nombre='Central')).get('/api/reservas/registro_conductores/').data
 
     assert registro[0]['patente'] == 'EST014' and registro[0]['soltadas_tarde'] == 1
+
+
+@pytest.mark.django_db
+def test_lista_de_pasajeros_con_incumplimientos(autenticar, crear_usuario):
+    hoy = datetime.date.today()
+    Pasajero.objects.create(rut='1-9', nombre='Sin', apellido='Falta', fecha_registro=hoy)
+    uno = Pasajero.objects.create(rut='2-7', nombre='Uno', apellido='Falta', fecha_registro=hoy, incumplimientos=1)
+    tres = Pasajero.objects.create(rut='3-5', nombre='Tres', apellido='Faltas', fecha_registro=hoy,
+                                   incumplimientos=3, bloqueado_domicilio=1)
+
+    resp = autenticar(crear_usuario('cen_ci1', rol_nombre='Central')).get('/api/pasajeros/con_incumplimientos/')
+
+    assert resp.status_code == 200
+    # solo los que tienen incumplimientos, con el bloqueado primero
+    assert [p['rut'] for p in resp.data] == [tres.rut, uno.rut]
+    assert resp.data[0]['bloqueado_domicilio'] == 1
