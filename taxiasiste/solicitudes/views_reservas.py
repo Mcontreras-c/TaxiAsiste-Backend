@@ -3,6 +3,7 @@ from datetime import timedelta
 import requests
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, F, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
@@ -102,6 +103,22 @@ def _hora_local(dt):
     return reservas_logic.aware(dt).astimezone(ZoneInfo('America/Santiago')).strftime('%H:%M')
 
 
+MENSAJE_PASAJERO_BLOQUEADO = (
+    'Este pasajero acumuló varios incumplimientos y no puede pedir móviles a domicilio. '
+    'Puede tomar uno en el hospital. Un administrador puede levantar el bloqueo.'
+)
+
+
+def _liberar_movil(movil):
+    """Devuelve el movil a DISPONIBLE si el servicio que lo ocupaba termino y no tiene otro activo."""
+    if movil is None or movil.estado_operativo not in ('EN_SERVICIO', 'EN_VIAJE'):
+        return
+    if movil.solicitudes.filter(estado__in=['ASIGNADO', 'EN_CURSO']).exists():
+        return
+    movil.estado_operativo = 'DISPONIBLE'
+    movil.save(update_fields=['estado_operativo'])
+
+
 def _registrar(reserva, tipo, request, movil=None, detalle=None):
     ReservaEvento.objects.create(
         reserva=reserva, movil=movil, usuario=request.user, tipo=tipo, detalle=detalle,
@@ -115,7 +132,7 @@ class ReservaViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, GenericVi
     serializer_class = ReservaSerializer
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve', 'create', 'cancelar'):
+        if self.action in ('list', 'retrieve', 'create', 'cancelar', 'liberar', 'registro_conductores'):
             return [IsAuthenticated(), EsCentral()]
         return [IsAuthenticated(), EsConductor()]
 
@@ -161,6 +178,9 @@ class ReservaViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, GenericVi
             pasajero = Pasajero.objects.filter(pk=datos['pasajero']).first()
             if pasajero is None:
                 return Response({'detail': 'El pasajero indicado no existe.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if pasajero is not None and pasajero.bloqueado_domicilio:
+            return Response({'detail': MENSAJE_PASAJERO_BLOQUEADO}, status=status.HTTP_409_CONFLICT)
 
         punto, error = _resolver_punto(datos['origen'], None, None)
         if error == 'red':
@@ -323,7 +343,154 @@ class ReservaViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, GenericVi
         data['soltada_tarde'] = tarde
         return Response(data)
 
+    @action(detail=True, methods=['post'])
+    def en_camino(self, request, pk=None):
+        """
+        "Voy en camino": el conductor confirma que salio hacia el pasajero. Se
+        habilita desde RESERVA_EN_CAMINO_DESDE_MIN antes de la recogida. Su
+        movil pasa a EN_SERVICIO (ocupado), igual que con una solicitud asignada.
+        """
+        with transaction.atomic():
+            reserva = self._reserva_propia(request)
+            if isinstance(reserva, Response):
+                return reserva
+            if reserva.estado != 'ASIGNADA':
+                return Response({'detail': 'Solo puedes salir a una reserva que tienes asignada.'},
+                                status=status.HTTP_409_CONFLICT)
+            desde = reservas_logic.aware(reserva.fecha_hora_recogida) - timedelta(minutes=settings.RESERVA_EN_CAMINO_DESDE_MIN)
+            if timezone.now() < desde:
+                return Response(
+                    {'detail': f'Aún es pronto: podrás salir desde las {_hora_local(desde)}.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            movil = reserva.movil
+            reserva.estado = 'EN_CAMINO'
+            reserva.save(update_fields=['estado'])
+            if movil.estado_operativo in ('DISPONIBLE', 'INACTIVO'):
+                movil.estado_operativo = 'EN_SERVICIO'
+                movil.save(update_fields=['estado_operativo'])
+            _registrar(reserva, 'EN_CAMINO', request, movil=movil)
+        return Response(self.get_serializer(reserva).data)
+
+    @action(detail=True, methods=['post'])
+    def completar(self, request, pk=None):
+        """El conductor termino el viaje (el pasajero ya llego al hospital)."""
+        with transaction.atomic():
+            reserva = self._reserva_propia(request)
+            if isinstance(reserva, Response):
+                return reserva
+            if reserva.estado != 'EN_CAMINO':
+                return Response({'detail': 'Primero marca "Voy en camino".'}, status=status.HTTP_409_CONFLICT)
+            reserva.estado = 'COMPLETADA'
+            reserva.fecha_termino = timezone.now()
+            reserva.save(update_fields=['estado', 'fecha_termino'])
+            _liberar_movil(reserva.movil)
+            _registrar(reserva, 'COMPLETADA', request, movil=reserva.movil)
+        return Response(self.get_serializer(reserva).data)
+
+    @action(detail=True, methods=['post'])
+    def pasajero_ausente(self, request, pk=None):
+        """
+        El pasajero no estaba en el punto de recogida. Se permite despues de
+        esperar RESERVA_ESPERA_PASAJERO_MIN desde la hora acordada. Suma un
+        incumplimiento al pasajero; al llegar a PASAJERO_MAX_INCUMPLIMIENTOS
+        queda bloqueado para pedir moviles a domicilio.
+        """
+        with transaction.atomic():
+            reserva = self._reserva_propia(request)
+            if isinstance(reserva, Response):
+                return reserva
+            if reserva.estado != 'EN_CAMINO':
+                return Response({'detail': 'Solo puedes cerrar una reserva que está en camino.'},
+                                status=status.HTTP_409_CONFLICT)
+            espera = timedelta(minutes=settings.RESERVA_ESPERA_PASAJERO_MIN)
+            habilitada = reservas_logic.aware(reserva.fecha_hora_recogida) + espera
+            if timezone.now() < habilitada:
+                return Response(
+                    {'detail': f'Espera al pasajero hasta las {_hora_local(habilitada)} antes de cerrar la reserva.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            reserva.estado = 'PASAJERO_AUSENTE'
+            reserva.fecha_termino = timezone.now()
+            reserva.save(update_fields=['estado', 'fecha_termino'])
+
+            bloqueado = False
+            if reserva.pasajero_id:
+                pasajero = Pasajero.objects.select_for_update().get(pk=reserva.pasajero_id)
+                pasajero.incumplimientos = F('incumplimientos') + 1
+                pasajero.save(update_fields=['incumplimientos'])
+                pasajero.refresh_from_db()
+                if pasajero.incumplimientos >= settings.PASAJERO_MAX_INCUMPLIMIENTOS and not pasajero.bloqueado_domicilio:
+                    pasajero.bloqueado_domicilio = 1
+                    pasajero.save(update_fields=['bloqueado_domicilio'])
+                bloqueado = bool(pasajero.bloqueado_domicilio)
+
+            _liberar_movil(reserva.movil)
+            _registrar(reserva, 'PASAJERO_AUSENTE', request, movil=reserva.movil)
+
+        data = self.get_serializer(reserva).data
+        data['pasajero_bloqueado'] = bloqueado
+        return Response(data)
+
+    @action(detail=True, methods=['post'])
+    def liberar(self, request, pk=None):
+        """
+        Central le quita la reserva al conductor y la deja de nuevo disponible
+        (asi la pueden tomar otros). Con {"incumplio": true} queda registrado
+        como incumplimiento del conductor (no llego / no confirmo).
+        """
+        with transaction.atomic():
+            reserva = Reserva.objects.select_for_update().get(pk=self.get_object().pk)
+            if reserva.estado not in ('ASIGNADA', 'EN_CAMINO'):
+                return Response({'detail': 'Solo se puede liberar una reserva que tiene conductor.'},
+                                status=status.HTTP_409_CONFLICT)
+            movil = reserva.movil
+            incumplio = bool(request.data.get('incumplio'))
+
+            reserva.estado = 'PROGRAMADA'
+            reserva.movil = None
+            reserva.fecha_tomada = None
+            reserva.save(update_fields=['estado', 'movil', 'fecha_tomada'])
+            _liberar_movil(movil)
+            _registrar(reserva, 'CONDUCTOR_INCUMPLIO' if incumplio else 'LIBERADA_POR_CENTRAL', request,
+                       movil=movil, detalle=request.data.get('motivo'))
+        return Response(self.get_serializer(reserva).data)
+
+    @action(detail=False, methods=['get'])
+    def registro_conductores(self, request):
+        """
+        Registro de incumplimientos por movil: cuantas veces no llego o no
+        confirmo (CONDUCTOR_INCUMPLIO) y cuantas soltó una reserva con menos de
+        2 h de anticipacion (SOLTADA_TARDE). Solo se registra: sin sanciones automaticas.
+        """
+        filas = (
+            ReservaEvento.objects
+            .filter(tipo__in=['CONDUCTOR_INCUMPLIO', 'SOLTADA_TARDE'], movil__isnull=False)
+            .values('movil', 'movil__patente', 'movil__socio__nombre', 'movil__socio__apellido')
+            .annotate(
+                no_llego=Count('id_evento', filter=Q(tipo='CONDUCTOR_INCUMPLIO')),
+                soltadas_tarde=Count('id_evento', filter=Q(tipo='SOLTADA_TARDE')),
+            )
+            .order_by('-no_llego', '-soltadas_tarde')
+        )
+        return Response([{
+            'movil': f['movil'],
+            'patente': f['movil__patente'],
+            'conductor': f"{f['movil__socio__nombre']} {f['movil__socio__apellido']}",
+            'no_llego': f['no_llego'],
+            'soltadas_tarde': f['soltadas_tarde'],
+        } for f in filas])
+
     # ---------------------------------------------------------------- Interno
+
+    def _reserva_propia(self, request):
+        """Reserva (bloqueada) que pertenece al movil del conductor, o un Response de error."""
+        movil = _movil_del_conductor(request.user)
+        reserva = Reserva.objects.select_for_update().get(pk=self.get_object().pk)
+        if movil is None or reserva.movil_id != movil.pk:
+            return Response({'detail': 'Esta reserva no es tuya.'}, status=status.HTTP_403_FORBIDDEN)
+        return reserva
 
     def _activas_de(self, movil):
         return (

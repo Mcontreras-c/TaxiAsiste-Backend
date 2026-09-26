@@ -23,6 +23,14 @@ class Pasajero(models.Model):
         default=1,
         db_comment='1=activo, 0=inactivo',
     )
+    incumplimientos = models.SmallIntegerField(
+        default=0,
+        db_comment='Veces que no se presento a una reserva. Al llegar a PASAJERO_MAX_INCUMPLIMIENTOS se bloquea.',
+    )
+    bloqueado_domicilio = models.SmallIntegerField(
+        default=0,
+        db_comment='1 = no puede pedir moviles a domicilio (solo un administrador lo levanta)',
+    )
 
     class Meta:
         managed = False
@@ -125,7 +133,7 @@ class Reserva(models.Model):
     reservas (ver reservas_logic.py).
     """
 
-    ESTADOS = ('PROGRAMADA', 'ASIGNADA', 'EN_CAMINO', 'COMPLETADA', 'CANCELADA', 'INCUMPLIDA')
+    ESTADOS = ('PROGRAMADA', 'ASIGNADA', 'EN_CAMINO', 'COMPLETADA', 'CANCELADA', 'INCUMPLIDA', 'PASAJERO_AUSENTE')
     ESTADOS_ACTIVOS = ('ASIGNADA', 'EN_CAMINO')
 
     id_reserva = models.FloatField(primary_key=True)
@@ -151,7 +159,7 @@ class Reserva(models.Model):
     estado = models.CharField(
         max_length=20,
         default='PROGRAMADA',
-        db_comment='PROGRAMADA | ASIGNADA | EN_CAMINO | COMPLETADA | CANCELADA | INCUMPLIDA',
+        db_comment='PROGRAMADA | ASIGNADA | EN_CAMINO | COMPLETADA | CANCELADA | INCUMPLIDA | PASAJERO_AUSENTE',
     )
     observaciones = models.CharField(max_length=500, blank=True, null=True)
     fecha_creacion = models.DateTimeField(blank=True, null=True)
