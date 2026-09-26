@@ -6,7 +6,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from taxiasiste.login import LoginView, LogoutView
-from taxiasiste.views import cotizar_tarifa, estimar_tarifa, geocodificar, ping, ruta
+from taxiasiste.views import cotizar_tarifa, descarga_app, estimar_tarifa, geocodificar, ping, ruta
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -20,6 +20,7 @@ urlpatterns = [
     path('api/ruta/', ruta, name='ruta'),
     path('api/estimar_tarifa/', estimar_tarifa, name='estimar-tarifa'),
     path('api/cotizar_tarifa/', cotizar_tarifa, name='cotizar-tarifa'),
+    path('api/descarga_app/', descarga_app, name='descarga-app'),
     path('api/', include('taxiasiste.usuarios.urls')),
     path('api/', include('taxiasiste.socios.urls')),
     path('api/', include('taxiasiste.moviles.urls')),

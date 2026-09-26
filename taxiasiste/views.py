@@ -62,6 +62,18 @@ def ping(request):
     })
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def descarga_app(request):
+    """
+    Link de descarga del APK para el boton "Descargar app" del panel web. Vive
+    en la configuracion del servidor (APK_DOWNLOAD_URL en el .env) para poder
+    cambiarlo al publicar una version nueva sin volver a compilar el frontend.
+    Solo con sesion iniciada: no se expone a visitantes.
+    """
+    return Response({'url': settings.APK_DOWNLOAD_URL or None})
+
+
 def geocodificar_direccion(direccion, bounds=None):
     """
     Convierte una direccion en texto a lat/lng usando Google Geocoding API.
