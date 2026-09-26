@@ -5,6 +5,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from .bajas import BajaError, dar_de_baja_usuario, reactivar_usuario
 from .emails import enviar_clave_temporal, enviar_credenciales_reenviadas
 from .models import Rol, Usuario
 from .passwords import generar_clave
@@ -25,13 +26,39 @@ class UsuarioViewSet(ModelViewSet):
     # busca el socio vinculado de cada usuario en el listado.
     queryset = Usuario.objects.select_related('rol', 'socio').all()
     serializer_class = UsuarioSerializer
+    # Sin DELETE (405): una cuenta se da de baja (INACTIVO), nunca se borra, para
+    # no perder el historial. Ver dar_de_baja / reactivar.
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_permissions(self):
         if self.action == 'olvide_password':
             return [AllowAny()]
-        if self.action in ('create', 'update', 'partial_update', 'destroy', 'resetear_password', 'reenviar_credenciales'):
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'resetear_password', 'reenviar_credenciales',
+                           'dar_de_baja', 'reactivar'):
             return [EsAdministrador()]
         return [IsAuthenticated()]
+
+    @action(detail=True, methods=['post'])
+    def dar_de_baja(self, request, pk=None):
+        """Deja la cuenta INACTIVA (no borra). Si es la de un conductor, da de baja al socio completo."""
+        usuario = self.get_object()
+        try:
+            dar_de_baja_usuario(usuario, request.user)
+        except BajaError as e:
+            return Response({'detail': e.detail}, status=409)
+        usuario.refresh_from_db()
+        return Response(UsuarioSerializer(usuario).data)
+
+    @action(detail=True, methods=['post'])
+    def reactivar(self, request, pk=None):
+        """Vuelve a dejar ACTIVA una cuenta dada de baja."""
+        usuario = self.get_object()
+        try:
+            reactivar_usuario(usuario)
+        except BajaError as e:
+            return Response({'detail': e.detail}, status=409)
+        usuario.refresh_from_db()
+        return Response(UsuarioSerializer(usuario).data)
 
     @action(detail=False, methods=['get'])
     def me(self, request):

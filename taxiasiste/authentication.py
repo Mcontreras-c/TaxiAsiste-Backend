@@ -13,6 +13,12 @@ class UsuarioJWTAuthentication(JWTAuthentication):
         except Usuario.DoesNotExist:
             raise InvalidToken('Usuario no encontrado.')
 
+        # Cuenta dada de baja o bloqueada: sus tokens dejan de servir de inmediato.
+        # No alcanza con vaciar sesion_actual (mas abajo, un valor vacio omite la
+        # comparacion del 'sid' y el token seguiria valido hasta expirar).
+        if usuario.estado != 'ACTIVO':
+            raise InvalidToken('Usuario inactivo. Contacte al administrador.')
+
         # Sesion unica: si el 'sid' del token no coincide con la sesion activa
         # guardada en el usuario, es un token de una sesion vieja (se inicio
         # sesion despues en otro dispositivo) -> se rechaza.
