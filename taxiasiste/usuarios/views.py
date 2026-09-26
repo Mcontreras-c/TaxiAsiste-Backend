@@ -5,11 +5,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
-from .emails import enviar_clave_temporal, enviar_credenciales_reenviadas
+from .emails import enviar_aviso_cambio_correo, enviar_clave_temporal, enviar_credenciales_reenviadas
 from .models import Rol, Usuario
 from .passwords import generar_clave
 from .permissions import EsAdministrador
-from .serializers import RolSerializer, UsuarioSerializer
+from .serializers import PerfilEditarSerializer, PerfilSerializer, RolSerializer, UsuarioSerializer
 
 PASSWORD_MIN_LEN = 6
 
@@ -38,6 +38,48 @@ class UsuarioViewSet(ModelViewSet):
         """Devuelve el perfil del usuario autenticado."""
         serializer = UsuarioSerializer(request.user)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get', 'patch'], url_path='mi_perfil')
+    def mi_perfil(self, request):
+        """
+        Perfil de la propia cuenta. GET lo muestra; PATCH deja cambiar SOLO el
+        correo y el telefono (nombre, RUT, usuario, rol y estado los maneja un
+        administrador). Cambiar el correo exige la clave actual y avisa al
+        correo anterior. Un Conductor guarda su telefono en su ficha de socio.
+        """
+        usuario = request.user
+        if request.method == 'GET':
+            return Response(PerfilSerializer(usuario).data)
+
+        entrada = PerfilEditarSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        datos = entrada.validated_data
+
+        correo_anterior = usuario.email
+        correo_nuevo = datos.get('email')
+        cambia_correo = correo_nuevo is not None and correo_nuevo.lower() != (correo_anterior or '').lower()
+
+        if cambia_correo:
+            if not check_password(datos.get('password_actual', ''), usuario.password_hash):
+                return Response({'detail': 'Para cambiar el correo debes ingresar tu contraseña actual.'}, status=400)
+            if Usuario.objects.filter(email__iexact=correo_nuevo).exclude(pk=usuario.pk).exists():
+                return Response({'detail': 'Ese correo ya está en uso por otra cuenta.'}, status=400)
+            usuario.email = correo_nuevo
+            usuario.save(update_fields=['email'])
+
+        if 'telefono' in datos:
+            socio = PerfilSerializer.socio_de(usuario)
+            if socio:
+                socio.telefono = datos['telefono']
+                socio.save(update_fields=['telefono'])
+            else:
+                usuario.telefono = datos['telefono']
+                usuario.save(update_fields=['telefono'])
+
+        if cambia_correo and correo_anterior:
+            enviar_aviso_cambio_correo(usuario, correo_anterior, correo_nuevo)
+
+        return Response(PerfilSerializer(usuario).data)
 
     @action(detail=False, methods=['post'])
     def cambiar_password(self, request):
