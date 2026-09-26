@@ -49,3 +49,16 @@ CREATE TABLE IF NOT EXISTS "RESERVA_EVENTOS" (
 
 CREATE INDEX IF NOT EXISTS idx_reserva_eventos_reserva ON "RESERVA_EVENTOS" (id_reserva);
 CREATE INDEX IF NOT EXISTS idx_reserva_eventos_movil_tipo ON "RESERVA_EVENTOS" (id_movil, tipo);
+
+-- ---------------------------------------------------------------------------
+-- Etapa 2: estado PASAJERO_AUSENTE y registro de incumplimientos de pasajeros.
+-- A la 3a vez el pasajero queda bloqueado para pedir moviles a domicilio (un
+-- administrador puede levantar el bloqueo, lo que reinicia el contador).
+-- ---------------------------------------------------------------------------
+ALTER TABLE "RESERVAS" DROP CONSTRAINT IF EXISTS chk_reserva_estado;
+ALTER TABLE "RESERVAS" ADD CONSTRAINT chk_reserva_estado CHECK (estado IN (
+    'PROGRAMADA', 'ASIGNADA', 'EN_CAMINO', 'COMPLETADA', 'CANCELADA', 'INCUMPLIDA', 'PASAJERO_AUSENTE'
+));
+
+ALTER TABLE "PASAJEROS" ADD COLUMN IF NOT EXISTS incumplimientos SMALLINT NOT NULL DEFAULT 0;
+ALTER TABLE "PASAJEROS" ADD COLUMN IF NOT EXISTS bloqueado_domicilio SMALLINT NOT NULL DEFAULT 0;

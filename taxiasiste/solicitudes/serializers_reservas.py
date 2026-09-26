@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from . import reservas_logic
@@ -32,6 +33,7 @@ class ReservaSerializer(serializers.ModelSerializer):
     conductor_nombre = serializers.SerializerMethodField()
     salida_base_maxima = serializers.SerializerMethodField()
     libre_desde = serializers.SerializerMethodField()
+    alerta = serializers.SerializerMethodField()
 
     class Meta:
         model = Reserva
@@ -39,7 +41,7 @@ class ReservaSerializer(serializers.ModelSerializer):
             'id_reserva', 'folio', 'estado',
             'origen', 'origen_lat', 'origen_lng', 'destino',
             'fecha_hora_recogida', 'duracion_estimada_s', 'distancia_estimada_m', 'tarifa_estimada',
-            'salida_base_maxima', 'libre_desde',
+            'salida_base_maxima', 'libre_desde', 'alerta',
             'pasajero', 'pasajero_nombre', 'pasajero_telefono',
             'movil', 'movil_patente', 'conductor_nombre',
             'observaciones', 'fecha_creacion', 'fecha_tomada', 'fecha_termino',
@@ -70,6 +72,11 @@ class ReservaSerializer(serializers.ModelSerializer):
 
     def get_salida_base_maxima(self, obj):
         return reservas_logic.hora_maxima_salida(obj.fecha_hora_recogida, obj.duracion_estimada_s)
+
+    def get_alerta(self, obj):
+        return reservas_logic.alerta(
+            obj.estado, obj.fecha_hora_recogida, obj.duracion_estimada_s, timezone.now(),
+        )
 
     def get_libre_desde(self, obj):
         return reservas_logic.franja(obj.fecha_hora_recogida, obj.duracion_estimada_s)[1]

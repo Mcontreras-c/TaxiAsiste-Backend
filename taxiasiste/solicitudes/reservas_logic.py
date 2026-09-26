@@ -46,6 +46,25 @@ def hora_maxima_salida(recogida, duracion_s):
     return franja(recogida, duracion_s)[0]
 
 
+def alerta(estado, recogida, duracion_s, ahora):
+    """
+    Alerta que Central debe atender, calculada al leer (no hace falta una tarea
+    programada):
+
+    - 'SIN_CONDUCTOR': nadie tomo la reserva y ya falta poco (a
+      RESERVA_ALERTA_SIN_CONDUCTOR_MIN de la hora maxima de salida) -> Central
+      debe asignarla por telefono.
+    - 'NO_CONFIRMADA': un conductor la tomo pero paso su hora maxima de salida
+      (mas la tolerancia) y no pulso "Voy en camino" -> Central lo llama.
+    """
+    salida = hora_maxima_salida(recogida, duracion_s)
+    if estado == 'PROGRAMADA' and ahora >= salida - timedelta(minutes=settings.RESERVA_ALERTA_SIN_CONDUCTOR_MIN):
+        return 'SIN_CONDUCTOR'
+    if estado == 'ASIGNADA' and ahora >= salida + timedelta(minutes=settings.RESERVA_TOLERANCIA_CONFIRMACION_MIN):
+        return 'NO_CONFIRMADA'
+    return None
+
+
 def se_cruzan(a, b):
     """
     a y b son (recogida, duracion_s). Solo se permite una reserva cuando la
