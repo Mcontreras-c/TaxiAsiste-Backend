@@ -18,8 +18,11 @@ class PasajeroSerializer(serializers.ModelSerializer):
             'direccion_frecuente',
             'fecha_registro',
             'activo',
+            'incumplimientos',
+            'bloqueado_domicilio',
         ]
-        read_only_fields = ['id_pasajero']
+        # El bloqueo lo maneja el sistema (3 incumplimientos) y un administrador (levantarlo).
+        read_only_fields = ['id_pasajero', 'incumplimientos', 'bloqueado_domicilio']
 
     def get_nombre_completo(self, obj):
         return f'{obj.nombre} {obj.apellido}'

@@ -92,3 +92,19 @@ def enviar_clave_temporal(usuario, clave_temporal):
         'Saludos,\nTaxiAsiste'
     )
     return _enviar('Recuperacion de contrasena — TaxiAsiste', cuerpo, usuario.email)
+
+
+def enviar_aviso_cambio_correo(usuario, correo_anterior, correo_nuevo):
+    """
+    Aviso al correo ANTERIOR cuando alguien cambia el correo de su cuenta: el
+    correo se usa para recuperar la clave, asi que si un tercero lo cambia, el
+    dueño original se entera y puede avisar a un administrador.
+    """
+    cuerpo = (
+        f'Hola {usuario.username},\n\n'
+        f'El correo de tu cuenta de TaxiAsiste se cambio a: {correo_nuevo}\n\n'
+        'Si fuiste tu, no tienes que hacer nada. Si no reconoces este cambio, '
+        'avisa de inmediato a un administrador.\n\n'
+        'Saludos,\nTaxiAsiste'
+    )
+    return _enviar('Cambio de correo en tu cuenta — TaxiAsiste', cuerpo, correo_anterior)

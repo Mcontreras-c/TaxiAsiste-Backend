@@ -175,3 +175,16 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://localhost:5173',
 ]
+
+# --- Reservas (viajes programados) ---------------------------------------
+# Todo en un solo lugar para ajustar las reglas sin tocar codigo.
+RESERVA_MARGEN_MIN = 15               # colchon antes y despues de cada reserva
+RESERVA_MAX_ACTIVAS = 3               # reservas activas (ASIGNADA/EN_CAMINO) por conductor
+RESERVA_HORIZONTE_HORAS = 24          # hasta cuantas horas adelante se puede reservar
+RESERVA_ANTICIPACION_MIN = 30         # minimo de anticipacion al crear una reserva
+RESERVA_SOLTAR_SIN_PENALIZACION_H = 2 # soltar con menos de esto = "soltada tarde" (incumplimiento)
+RESERVA_EN_CAMINO_DESDE_MIN = 60           # "Voy en camino" se habilita desde 60 min antes de la recogida
+RESERVA_ALERTA_SIN_CONDUCTOR_MIN = 30      # alerta a Central si nadie la tomo a 30 min de la hora maxima de salida
+RESERVA_TOLERANCIA_CONFIRMACION_MIN = 5    # alerta si el conductor no confirmo 5 min despues de su hora maxima de salida
+RESERVA_ESPERA_PASAJERO_MIN = 10           # el conductor espera 10 min antes de cerrar "pasajero no se presento"
+PASAJERO_MAX_INCUMPLIMIENTOS = 3           # a la 3a vez no puede pedir moviles a domicilio

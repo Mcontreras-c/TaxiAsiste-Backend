@@ -50,6 +50,10 @@ class Usuario(models.Model):
                     'un Conductor muestra el nombre de su Socio, no este campo.',
     )
     apellido = models.CharField(max_length=100, blank=True, null=True)
+    telefono = models.CharField(
+        max_length=20, blank=True, null=True,
+        db_comment='Solo para usuarios sin Socio vinculado -- un Conductor usa SOCIOS.telefono.',
+    )
     estado = models.CharField(
         max_length=20,
         default='ACTIVO',

@@ -1,6 +1,7 @@
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
@@ -25,6 +26,29 @@ TRANSICIONES_VALIDAS = {
 class PasajeroViewSet(ModelViewSet):
     queryset = Pasajero.objects.filter(activo=1).order_by('apellido', 'nombre')
     serializer_class = PasajeroSerializer
+
+    @action(detail=False, methods=['get'])
+    def con_incumplimientos(self, request):
+        """
+        Pasajeros que no se presentaron a alguna reserva, los mas reincidentes
+        primero (para la vista de incumplimientos de Central). Incluye a los
+        bloqueados para pedir moviles a domicilio.
+        """
+        qs = Pasajero.objects.filter(incumplimientos__gt=0).order_by('-bloqueado_domicilio', '-incumplimientos', 'apellido')
+        return Response(PasajeroSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=['post'])
+    def levantar_bloqueo(self, request, pk=None):
+        """Un administrador levanta el bloqueo de un pasajero y reinicia su contador de incumplimientos."""
+        rol = getattr(getattr(request.user, 'rol', None), 'nombre_rol', None)
+        if rol != 'Administrador':
+            return Response({'detail': 'Solo un administrador puede levantar el bloqueo.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        pasajero = self.get_object()
+        pasajero.incumplimientos = 0
+        pasajero.bloqueado_domicilio = 0
+        pasajero.save(update_fields=['incumplimientos', 'bloqueado_domicilio'])
+        return Response(PasajeroSerializer(pasajero).data)
 
     @action(detail=False, methods=['get'])
     def buscar_rut(self, request):
@@ -52,11 +76,19 @@ class SolicitudViewSet(ModelViewSet):
 
     def perform_create(self, serializer):
         """
+        Un pasajero bloqueado por incumplimientos no puede pedir un movil a
+        domicilio (telefono/app); en el hospital (PRESENCIAL) si.
+
         Geocodifica el origen al crear -- best-effort, nunca bloquea la
         creacion aunque Google falle o no encuentre la direccion (queda con
         origen_lat/lng null, y pendientes_con_distancia simplemente no puede
         calcularle distancia/ETA a esa solicitud puntual).
         """
+        pasajero = serializer.validated_data.get('pasajero')
+        if pasajero and pasajero.bloqueado_domicilio and serializer.validated_data.get('canal_entrada') != 'PRESENCIAL':
+            from .views_reservas import MENSAJE_PASAJERO_BLOQUEADO
+            raise ValidationError({'detail': MENSAJE_PASAJERO_BLOQUEADO})
+
         solicitud = serializer.save()
         lat, lng, _direccion_formateada, _error = geocodificar_direccion(solicitud.origen)
         if lat is not None:

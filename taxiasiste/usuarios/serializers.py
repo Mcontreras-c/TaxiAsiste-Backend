@@ -1,3 +1,5 @@
+import re
+
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
 from django.utils import timezone
@@ -109,3 +111,81 @@ class UsuarioSerializer(serializers.ModelSerializer):
 
         enviar_credenciales_iniciales(usuario, clave)
         return usuario
+
+
+class PerfilSerializer(serializers.Serializer):
+    """Lo que la persona ve de su propia cuenta (GET /usuarios/mi_perfil/)."""
+
+    id_usuario = serializers.IntegerField()
+    username = serializers.CharField()
+    rol = serializers.SerializerMethodField()
+    nombre = serializers.SerializerMethodField()
+    apellido = serializers.SerializerMethodField()
+    nombre_completo = serializers.SerializerMethodField()
+    rut = serializers.SerializerMethodField()
+    email = serializers.CharField(allow_null=True)
+    telefono = serializers.SerializerMethodField()
+    es_socio = serializers.SerializerMethodField()
+
+    @staticmethod
+    def socio_de(obj):
+        """Socio vinculado al usuario, o None si es personal sin ficha de socio."""
+        from taxiasiste.socios.models import Socio
+
+        try:
+            return obj.socio
+        except Socio.DoesNotExist:
+            return None
+
+    def get_rol(self, obj):
+        return obj.rol.nombre_rol
+
+    def get_nombre(self, obj):
+        socio = self.socio_de(obj)
+        return socio.nombre if socio else obj.nombre
+
+    def get_apellido(self, obj):
+        socio = self.socio_de(obj)
+        return socio.apellido if socio else obj.apellido
+
+    def get_nombre_completo(self, obj):
+        return ' '.join(x for x in (self.get_nombre(obj), self.get_apellido(obj)) if x) or obj.username
+
+    def get_rut(self, obj):
+        socio = self.socio_de(obj)
+        return socio.rut if socio else None
+
+    def get_telefono(self, obj):
+        socio = self.socio_de(obj)
+        return socio.telefono if socio else obj.telefono
+
+    def get_es_socio(self, obj):
+        return self.socio_de(obj) is not None
+
+
+TELEFONO_RE = re.compile(r'^\+?\d{8,15}$')
+
+
+def normalizar_telefono(valor):
+    """
+    Quita espacios, guiones y parentesis y valida que queden solo digitos (con
+    un + opcional al inicio), entre 8 y 15. Devuelve None si viene vacio.
+    """
+    limpio = re.sub(r'[\s\-()]', '', valor or '')
+    if not limpio:
+        return None
+    if not TELEFONO_RE.match(limpio):
+        raise serializers.ValidationError('Teléfono inválido: usa solo números (ej. +56 9 1234 5678).')
+    return limpio
+
+
+class PerfilEditarSerializer(serializers.Serializer):
+    """Entrada de PATCH /usuarios/mi_perfil/: solo lo que la persona puede cambiar de si misma."""
+
+    email = serializers.EmailField(max_length=100, required=False)
+    telefono = serializers.CharField(max_length=30, required=False, allow_blank=True, allow_null=True)
+    # Cambiar el correo (que sirve para recuperar la clave) exige la clave actual.
+    password_actual = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
+    def validate_telefono(self, valor):
+        return normalizar_telefono(valor)

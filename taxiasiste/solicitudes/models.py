@@ -23,6 +23,14 @@ class Pasajero(models.Model):
         default=1,
         db_comment='1=activo, 0=inactivo',
     )
+    incumplimientos = models.SmallIntegerField(
+        default=0,
+        db_comment='Veces que no se presento a una reserva. Al llegar a PASAJERO_MAX_INCUMPLIMIENTOS se bloquea.',
+    )
+    bloqueado_domicilio = models.SmallIntegerField(
+        default=0,
+        db_comment='1 = no puede pedir moviles a domicilio (solo un administrador lo levanta)',
+    )
 
     class Meta:
         managed = False
@@ -114,3 +122,92 @@ class Solicitud(models.Model):
 
     def __str__(self):
         return f'{self.folio} ({self.estado})'
+
+
+class Reserva(models.Model):
+    """
+    Viaje programado: la Central lo registra con hora de recogida (hasta 24 h
+    hacia adelante), un conductor lo toma y llega puntual. Todos los viajes
+    terminan en el hospital (DESTINO_UNICO), por eso la duracion estimada del
+    trayecto sirve tanto para la ida como para calcular el margen entre
+    reservas (ver reservas_logic.py).
+    """
+
+    ESTADOS = ('PROGRAMADA', 'ASIGNADA', 'EN_CAMINO', 'COMPLETADA', 'CANCELADA', 'INCUMPLIDA', 'PASAJERO_AUSENTE')
+    ESTADOS_ACTIVOS = ('ASIGNADA', 'EN_CAMINO')
+
+    id_reserva = models.FloatField(primary_key=True)
+    folio = models.CharField(unique=True, max_length=20, db_comment='Codigo legible -- ej: RES-2026-00001')
+    pasajero = models.ForeignKey(
+        Pasajero, models.DO_NOTHING, db_column='id_pasajero', blank=True, null=True, related_name='reservas',
+    )
+    movil = models.ForeignKey(
+        'moviles.Movil', models.DO_NOTHING, db_column='id_movil', blank=True, null=True, related_name='reservas',
+    )
+    usuario_central = models.ForeignKey(
+        'usuarios.Usuario', models.DO_NOTHING, db_column='id_usuario_central', blank=True, null=True,
+        related_name='reservas_creadas',
+    )
+    origen = models.CharField(max_length=200)
+    origen_lat = models.DecimalField(max_digits=10, decimal_places=6, blank=True, null=True)
+    origen_lng = models.DecimalField(max_digits=10, decimal_places=6, blank=True, null=True)
+    destino = models.CharField(max_length=200)
+    fecha_hora_recogida = models.DateTimeField()
+    duracion_estimada_s = models.IntegerField(db_comment='Duracion origen->hospital con trafico previsto (Directions)')
+    distancia_estimada_m = models.IntegerField()
+    tarifa_estimada = models.IntegerField()
+    estado = models.CharField(
+        max_length=20,
+        default='PROGRAMADA',
+        db_comment='PROGRAMADA | ASIGNADA | EN_CAMINO | COMPLETADA | CANCELADA | INCUMPLIDA | PASAJERO_AUSENTE',
+    )
+    observaciones = models.CharField(max_length=500, blank=True, null=True)
+    fecha_creacion = models.DateTimeField(blank=True, null=True)
+    fecha_tomada = models.DateTimeField(blank=True, null=True)
+    fecha_termino = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'RESERVAS'
+        db_table_comment = 'Viajes programados que entran por la Central y toma un conductor'
+
+    def save(self, *args, **kwargs):
+        if not self.id_reserva:
+            self.id_reserva = nextval('seq_reservas')
+        self.destino = DESTINO_UNICO
+        if not self.folio:
+            self.folio = f'RES-{timezone.now().year}-{int(self.id_reserva):05d}'
+        if not self.fecha_creacion:
+            self.fecha_creacion = timezone.now()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.folio} ({self.estado})'
+
+
+class ReservaEvento(models.Model):
+    """Auditoria de una reserva (tomada, soltada, soltada tarde, cancelada...). Base del registro de incumplimientos."""
+
+    id_evento = models.FloatField(primary_key=True)
+    reserva = models.ForeignKey(Reserva, models.DO_NOTHING, db_column='id_reserva', related_name='eventos')
+    movil = models.ForeignKey(
+        'moviles.Movil', models.DO_NOTHING, db_column='id_movil', blank=True, null=True, related_name='eventos_reserva',
+    )
+    usuario = models.ForeignKey(
+        'usuarios.Usuario', models.DO_NOTHING, db_column='id_usuario', blank=True, null=True,
+        related_name='eventos_reserva',
+    )
+    tipo = models.CharField(max_length=30, db_comment='CREADA | TOMADA | SOLTADA | SOLTADA_TARDE | CANCELADA | ...')
+    detalle = models.CharField(max_length=300, blank=True, null=True)
+    fecha_hora = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'RESERVA_EVENTOS'
+
+    def save(self, *args, **kwargs):
+        if not self.id_evento:
+            self.id_evento = nextval('seq_reserva_eventos')
+        if not self.fecha_hora:
+            self.fecha_hora = timezone.now()
+        super().save(*args, **kwargs)
