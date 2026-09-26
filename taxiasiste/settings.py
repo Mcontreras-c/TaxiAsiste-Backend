@@ -33,6 +33,12 @@ APK_DOWNLOAD_URL = config('APK_DOWNLOAD_URL', default='')
 # Direccion del panel web, para el correo de bienvenida del personal administrativo.
 PANEL_WEB_URL = config('PANEL_WEB_URL', default='http://45.236.130.233')
 
+# Fila virtual (ver taxiasiste/moviles/fila_logic.py y el comando retirar_inactivos_fila).
+# Un movil EN_ESPERA que lleva mas de estos minutos sin reportar ubicacion sale de la fila.
+FILA_INACTIVIDAD_MIN = config('FILA_INACTIVIDAD_MIN', default=5, cast=int)
+# Segundos que tiene un conductor llamado para pulsar "Voy" antes de pasar al final de la fila.
+FILA_LLAMADO_SEGUNDOS = config('FILA_LLAMADO_SEGUNDOS', default=180, cast=int)
+
 ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [

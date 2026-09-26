@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from . import fila_logic
 from .models import FilaBase, Movil, UbicacionActual
 from .permissions import EsPropietarioDelMovilOStaff
 from .serializers import FilaBaseSerializer, MovilSerializer, UbicacionActualSerializer
@@ -88,6 +89,18 @@ class FilaBaseViewSet(ModelViewSet):
             return qs.filter(estado='EN_ESPERA')
         return qs
 
+    def list(self, request, *args, **kwargs):
+        # Los llamados que se quedaron sin confirmar pasan al final (o se retiran) al
+        # leer la fila, sin esperar a la siguiente pasada del comando programado
+        # (que corre cada minuto): el plazo de 3 minutos queda exacto para el paletero
+        # y para el conductor, que consultan la fila cada pocos segundos.
+        fila_logic.procesar_llamados_vencidos()
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        fila_logic.procesar_llamados_vencidos()
+        return super().retrieve(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         """Asigna la posición automáticamente al ingresar a la fila.
 
@@ -118,7 +131,37 @@ class FilaBaseViewSet(ModelViewSet):
             )
         entrada.estado = 'LLAMADO'
         entrada.fecha_llamado = timezone.now()
-        entrada.save(update_fields=['estado', 'fecha_llamado'])
+        entrada.confirmado_en = None  # un llamado nuevo empieza sin confirmar (parte el plazo de "Voy")
+        entrada.save(update_fields=['estado', 'fecha_llamado', 'confirmado_en'])
+        return Response(FilaBaseSerializer(entrada).data)
+
+    @action(detail=True, methods=['post'])
+    def confirmar(self, request, pk=None):
+        """
+        El conductor llamado pulsa "Voy". Solo el dueño del móvil. Si el plazo
+        (FILA_LLAMADO_SEGUNDOS) ya se agotó, la consecuencia se aplica y responde 409.
+        """
+        entrada = self.get_object()
+        socio = getattr(request.user, 'socio', None)
+        if socio is None or entrada.movil.socio_id != socio.id_socio:
+            return Response(
+                {'detail': 'Solo el conductor de este móvil puede confirmar.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        entrada, resultado = fila_logic.confirmar_llamado(entrada.pk)
+        if resultado == 'vencido':
+            mensaje = (
+                'Se agotó el tiempo para confirmar y saliste de la fila.'
+                if entrada.estado == 'RETIRADO'
+                else 'Se agotó el tiempo para confirmar: pasaste al final de la fila.'
+            )
+            return Response({'detail': mensaje}, status=status.HTTP_409_CONFLICT)
+        if resultado == 'no_llamado':
+            return Response(
+                {'detail': 'Este móvil no está llamado.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(FilaBaseSerializer(entrada).data)
 
     @action(detail=True, methods=['post'])

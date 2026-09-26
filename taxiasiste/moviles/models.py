@@ -58,6 +58,18 @@ class FilaBase(models.Model):
         default='EN_ESPERA',
         db_comment='EN_ESPERA | LLAMADO | RETIRADO',
     )
+    motivo_salida = models.CharField(
+        max_length=30, blank=True, null=True,
+        db_comment="Por que la saco el sistema: 'inactividad' | 'no_respondio'. NULL si salio por accion de una persona.",
+    )
+    confirmado_en = models.DateTimeField(
+        blank=True, null=True,
+        db_comment="Cuando el conductor pulso 'Voy' despues de ser llamado.",
+    )
+    no_respuestas = models.IntegerField(
+        default=0,
+        db_comment='Llamados seguidos sin confirmar; con 2 se retira. Vuelve a 0 al confirmar.',
+    )
 
     class Meta:
         managed = False
