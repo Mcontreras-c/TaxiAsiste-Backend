@@ -175,3 +175,11 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://localhost:5173',
 ]
+
+# --- Reservas (viajes programados) ---------------------------------------
+# Todo en un solo lugar para ajustar las reglas sin tocar codigo.
+RESERVA_MARGEN_MIN = 15               # colchon antes y despues de cada reserva
+RESERVA_MAX_ACTIVAS = 3               # reservas activas (ASIGNADA/EN_CAMINO) por conductor
+RESERVA_HORIZONTE_HORAS = 24          # hasta cuantas horas adelante se puede reservar
+RESERVA_ANTICIPACION_MIN = 30         # minimo de anticipacion al crear una reserva
+RESERVA_SOLTAR_SIN_PENALIZACION_H = 2 # soltar con menos de esto = "soltada tarde" (incumplimiento)
