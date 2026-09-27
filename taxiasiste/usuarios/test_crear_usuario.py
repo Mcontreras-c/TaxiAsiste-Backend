@@ -10,7 +10,7 @@ def test_no_administrador_no_puede_crear_usuario(autenticar, crear_usuario):
     client = autenticar(central)
 
     resp = client.post('/api/usuarios/', {
-        'id_rol': central.rol_id, 'username': 'nuevo1', 'email': 'nuevo1@example.cl',
+        'id_rol': central.rol_id, 'username': 'nuevo1', 'email': 'nuevo1@correo.cl',
     })
 
     assert resp.status_code == 403
@@ -26,7 +26,7 @@ def test_crear_personal_del_sindicato(autenticar, crear_usuario, crear_rol, mail
     resp = client.post('/api/usuarios/', {
         'id_rol': rol_tesorero.pk,
         'username': 'cmunoz',
-        'email': 'carolina.munoz@example.cl',
+        'email': 'carolina.munoz@correo.cl',
         'nombre': 'Carolina',
         'apellido': 'Muñoz',
     })
@@ -41,7 +41,7 @@ def test_crear_personal_del_sindicato(autenticar, crear_usuario, crear_rol, mail
     # nombre_completo se arma con nombre/apellido propios (sin socio vinculado).
     assert resp.data['nombre_completo'] == 'Carolina Muñoz'
     assert len(mailoutbox) == 1
-    assert mailoutbox[0].to == ['carolina.munoz@example.cl']
+    assert mailoutbox[0].to == ['carolina.munoz@correo.cl']
     assert 'cmunoz' in mailoutbox[0].body
 
 
@@ -65,7 +65,7 @@ def test_crear_conductor_vincula_al_socio_y_usa_su_nombre(autenticar, crear_usua
     client = autenticar(admin)
 
     resp = client.post('/api/usuarios/', {
-        'id_rol': rol_conductor.pk, 'username': 'jsoto', 'email': 'jsoto@example.cl', 'id_socio': socio.pk,
+        'id_rol': rol_conductor.pk, 'username': 'jsoto', 'email': 'jsoto@correo.cl', 'id_socio': socio.pk,
     })
 
     assert resp.status_code == 201, resp.data
@@ -87,7 +87,7 @@ def test_crear_conductor_con_socio_ya_vinculado_falla(autenticar, crear_usuario,
     client = autenticar(admin)
 
     resp = client.post('/api/usuarios/', {
-        'id_rol': rol_conductor.pk, 'username': 'otrousuario', 'email': 'otro@example.cl', 'id_socio': socio.pk,
+        'id_rol': rol_conductor.pk, 'username': 'otrousuario', 'email': 'otro@correo.cl', 'id_socio': socio.pk,
     })
 
     assert resp.status_code == 400
@@ -101,7 +101,7 @@ def test_crear_conductor_con_socio_inexistente_falla(autenticar, crear_usuario, 
     client = autenticar(admin)
 
     resp = client.post('/api/usuarios/', {
-        'id_rol': rol_conductor.pk, 'username': 'usuario2', 'email': 'usuario2@example.cl', 'id_socio': 999999,
+        'id_rol': rol_conductor.pk, 'username': 'usuario2', 'email': 'usuario2@correo.cl', 'id_socio': 999999,
     })
 
     assert resp.status_code == 400

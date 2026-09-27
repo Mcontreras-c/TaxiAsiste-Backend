@@ -12,6 +12,13 @@ def django_db_setup():
     """
 
 
+@pytest.fixture(autouse=True)
+def limpiar_cache():
+    from django.core.cache import cache
+
+    cache.clear()
+
+
 @pytest.fixture
 def api_client():
     from rest_framework.test import APIClient
@@ -85,7 +92,7 @@ def autenticar(api_client):
     """Fija el header Authorization simulando un login real: arma el mismo JWT
     (con claim 'sid') que emite LoginView, sin pasar por el endpoint HTTP."""
 
-    def _autenticar(usuario, sid='test-sid'):
+    def _autenticar(usuario, sid='test-sid', confirmar=True):
         import uuid
         from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -97,7 +104,12 @@ def autenticar(api_client):
         refresh['username'] = usuario.username
         refresh['rol'] = usuario.rol.nombre_rol
         refresh['sid'] = usuario.sesion_actual
-        api_client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+        credenciales = {'HTTP_AUTHORIZATION': f'Bearer {refresh.access_token}'}
+        if confirmar:
+            # Por defecto ya confirmo su clave (acciones sensibles); confirmar=False para probar sin ella.
+            from taxiasiste.usuarios.confirmacion import emitir_token
+            credenciales['HTTP_X_CONFIRMACION'] = emitir_token(usuario)
+        api_client.credentials(**credenciales)
         return api_client
 
     return _autenticar
