@@ -8,6 +8,7 @@ from rest_framework import serializers
 from .emails import enviar_credenciales_iniciales
 from .models import Rol, Usuario
 from .passwords import generar_clave
+from .validaciones import validar_correo_real
 
 
 class RolSerializer(serializers.ModelSerializer):
@@ -78,6 +79,15 @@ class UsuarioSerializer(serializers.ModelSerializer):
         if self.instance is None and not attrs.get('email'):
             raise serializers.ValidationError({'email': 'El correo es requerido para poder enviar la contraseña.'})
         return attrs
+
+    def validate_email(self, value):
+        # Solo se exige un correo real al crear o cuando cambia: las cuentas antiguas
+        # con correo generico se siguen pudiendo editar sin tocar el correo.
+        if not value:
+            return value
+        if self.instance is not None and (self.instance.email or '').lower() == value.lower():
+            return value
+        return validar_correo_real(value, excluir_pk=self.instance.pk if self.instance else None)
 
     def validate_id_socio(self, value):
         if value is None:

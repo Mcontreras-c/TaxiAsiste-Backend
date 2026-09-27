@@ -7,6 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from taxiasiste.usuarios.confirmacion import RequiereConfirmacion
+
 from . import fila_logic
 from .models import FilaBase, Movil, UbicacionActual
 from .permissions import EsPropietarioDelMovilOStaff
@@ -19,6 +21,13 @@ class MovilViewSet(ModelViewSet):
     queryset = Movil.objects.select_related('socio', 'ubicacion_actual').order_by('patente')
     serializer_class = MovilSerializer
     permission_classes = [IsAuthenticated, EsPropietarioDelMovilOStaff]
+
+    def get_permissions(self):
+        # Editar, bloquear o borrar un vehiculo exige confirmar la clave; las acciones
+        # operativas (ubicacion, conectar, desconectar) no.
+        if self.action in ('update', 'partial_update', 'destroy'):
+            return super().get_permissions() + [RequiereConfirmacion()]
+        return super().get_permissions()
 
     @action(detail=False, methods=['get'])
     def disponibles(self, request):

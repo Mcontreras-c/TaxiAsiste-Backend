@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.utils import timezone
 from rest_framework.decorators import action
@@ -5,12 +6,16 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from .confirmacion import RequiereConfirmacion, bloqueado, emitir_token, verificar_password
 from .bajas import BajaError, dar_de_baja_usuario, reactivar_usuario
-from .emails import enviar_aviso_cambio_correo, enviar_clave_temporal, enviar_credenciales_reenviadas
+from .emails import (
+    enviar_aviso_cambio_correo, enviar_clave_temporal, enviar_credenciales_iniciales, enviar_credenciales_reenviadas,
+)
 from .models import Rol, Usuario
 from .passwords import generar_clave
 from .permissions import EsAdministrador
 from .serializers import PerfilEditarSerializer, PerfilSerializer, RolSerializer, UsuarioSerializer
+from .serializers_personas import ConductorNuevoSerializer
 
 PASSWORD_MIN_LEN = 6
 
@@ -30,13 +35,47 @@ class UsuarioViewSet(ModelViewSet):
     # no perder el historial. Ver dar_de_baja / reactivar.
     http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
 
+    # Acciones que, ademas de ser de Administrador, exigen haber confirmado la clave hace poco.
+    ACCIONES_CONFIRMADAS = ('update', 'partial_update', 'resetear_password', 'reenviar_credenciales',
+                            'dar_de_baja', 'reactivar')
+
     def get_permissions(self):
         if self.action == 'olvide_password':
             return [AllowAny()]
-        if self.action in ('create', 'update', 'partial_update', 'destroy', 'resetear_password', 'reenviar_credenciales',
-                           'dar_de_baja', 'reactivar'):
+        if self.action in self.ACCIONES_CONFIRMADAS:
+            return [EsAdministrador(), RequiereConfirmacion()]
+        if self.action in ('create', 'destroy', 'crear_conductor'):
             return [EsAdministrador()]
         return [IsAuthenticated()]
+
+    @action(detail=False, methods=['post'])
+    def confirmar_identidad(self, request):
+        """
+        Vuelve a pedir la clave para las acciones sensibles. Devuelve un permiso
+        firmado de vida corta (header X-Confirmacion). 5 claves incorrectas
+        seguidas bloquean el paso unos minutos.
+        """
+        if bloqueado(request.user):
+            return Response({'detail': 'Demasiados intentos. Espera unos minutos.'}, status=429)
+        if not verificar_password(request.user, request.data.get('password')):
+            return Response({'detail': 'Contraseña incorrecta.'}, status=400)
+        return Response({'token': emitir_token(request.user), 'expira_en': settings.CONFIRMACION_SEGUNDOS})
+
+    @action(detail=False, methods=['post'])
+    def crear_conductor(self, request):
+        """Alta completa de un conductor (socio + vehiculo + cuenta) en una sola operacion."""
+        entrada = ConductorNuevoSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        usuario, socio, movil, clave = entrada.save()
+        correo_enviado = enviar_credenciales_iniciales(usuario, clave)
+        from taxiasiste.moviles.serializers import MovilSerializer
+        from taxiasiste.socios.serializers import SocioSerializer
+        return Response({
+            'usuario': UsuarioSerializer(usuario).data,
+            'socio': SocioSerializer(socio).data,
+            'movil': MovilSerializer(movil).data,
+            'correo_enviado': correo_enviado,
+        }, status=201)
 
     @action(detail=True, methods=['post'])
     def dar_de_baja(self, request, pk=None):

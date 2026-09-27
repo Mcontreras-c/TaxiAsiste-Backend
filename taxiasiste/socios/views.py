@@ -3,10 +3,12 @@ from datetime import date
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from taxiasiste.usuarios.bajas import BajaError, dar_de_baja_socio, reactivar_socio
+from taxiasiste.usuarios.confirmacion import RequiereConfirmacion
 from taxiasiste.usuarios.permissions import EsAdministrador
 
 from .models import Bloqueo, Cuota, Socio, TesoreriaMovimiento
@@ -21,7 +23,11 @@ class SocioViewSet(ModelViewSet):
 
     def get_permissions(self):
         if self.action in ('dar_de_baja', 'reactivar'):
-            return [EsAdministrador()]
+            return [EsAdministrador(), RequiereConfirmacion()]
+        if self.action in ('update', 'partial_update', 'bloquear', 'desbloquear'):
+            return [IsAuthenticated(), RequiereConfirmacion()]
+        if self.action == 'create':
+            return [EsAdministrador()]  # el alta normal es POST /usuarios/crear_conductor/
         return super().get_permissions()
 
     @action(detail=True, methods=['post'])
