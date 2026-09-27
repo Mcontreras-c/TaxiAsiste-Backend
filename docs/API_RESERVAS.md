@@ -33,7 +33,9 @@ Un conductor no puede tener dos reservas cuyas franjas se cruzan. Justo en el l�
 
 `PROGRAMADA` (sin conductor) → `ASIGNADA` (la tomó un conductor) → `EN_CAMINO` → `COMPLETADA`.
 Salidas alternativas: `CANCELADA` (Central) y `PASAJERO_AUSENTE` (el pasajero no llegó).
-Soltar o "liberar" devuelve la reserva a `PROGRAMADA`. (`INCUMPLIDA` existe en la base pero hoy no se usa:
+Soltar o "liberar" devuelve la reserva a `PROGRAMADA`.
+Dar de baja a un conductor (`/socios/{id}/dar_de_baja/` o su cuenta) devuelve a `PROGRAMADA` sus reservas
+`ASIGNADA` (evento `LIBERADA_POR_BAJA`) y se **rechaza con 409** si tiene una reserva `EN_CAMINO`. (`INCUMPLIDA` existe en la base pero hoy no se usa:
 el incumplimiento del conductor se registra como evento, ver "Registro".)
 
 ## Objeto Reserva
