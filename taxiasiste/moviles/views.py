@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from taxiasiste.reportes.auditoria import AuditaEdicion
 from taxiasiste.usuarios.confirmacion import RequiereConfirmacion
 
 from . import fila_logic
@@ -17,7 +18,9 @@ from .serializers import FilaBaseSerializer, MovilSerializer, UbicacionActualSer
 SEGUNDOS_ONLINE = 45
 
 
-class MovilViewSet(ModelViewSet):
+class MovilViewSet(AuditaEdicion, ModelViewSet):
+    auditoria_tipo = 'MOVIL'
+    auditoria_campos = ('patente', 'marca', 'modelo', 'anio', 'color', 'estado_operativo', 'socio_id')
     queryset = Movil.objects.select_related('socio', 'ubicacion_actual').order_by('patente')
     serializer_class = MovilSerializer
     permission_classes = [IsAuthenticated, EsPropietarioDelMovilOStaff]
