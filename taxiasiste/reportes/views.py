@@ -7,6 +7,8 @@ from taxiasiste.socios.models import Bloqueo, Cuota, Socio
 from taxiasiste.moviles.models import Movil
 from taxiasiste.solicitudes.models import Solicitud
 
+from taxiasiste.usuarios.permissions import EsAdministrador
+
 from .models import HistorialEvento
 from .serializers import HistorialEventoSerializer
 
@@ -14,6 +16,7 @@ from .serializers import HistorialEventoSerializer
 class HistorialEventoViewSet(ReadOnlyModelViewSet):
     queryset = HistorialEvento.objects.select_related('usuario').order_by('-fecha_hora')
     serializer_class = HistorialEventoSerializer
+    permission_classes = [EsAdministrador]  # quien hizo que: solo Administrador
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -24,6 +27,14 @@ class HistorialEventoViewSet(ReadOnlyModelViewSet):
         if entidad_id:
             qs = qs.filter(entidad_id=entidad_id)
         return qs
+
+    def list(self, request, *args, **kwargs):
+        # Sin paginacion global: se acota a los mas recientes (?limit=, maximo 500).
+        try:
+            limite = min(int(request.query_params.get('limit', 200)), 500)
+        except ValueError:
+            limite = 200
+        return Response(self.get_serializer(self.filter_queryset(self.get_queryset())[:limite], many=True).data)
 
 
 @api_view(['GET'])

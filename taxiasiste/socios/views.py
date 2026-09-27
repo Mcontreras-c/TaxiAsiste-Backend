@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from taxiasiste.reportes.auditoria import AuditaEdicion, registrar
 from taxiasiste.usuarios.bajas import BajaError, dar_de_baja_socio, reactivar_socio
 from taxiasiste.usuarios.confirmacion import RequiereConfirmacion
 from taxiasiste.usuarios.permissions import EsAdministrador
@@ -15,7 +16,9 @@ from .models import Bloqueo, Cuota, Socio, TesoreriaMovimiento
 from .serializers import BloqueoSerializer, CuotaSerializer, SocioSerializer, TesoreriaMovimientoSerializer
 
 
-class SocioViewSet(ModelViewSet):
+class SocioViewSet(AuditaEdicion, ModelViewSet):
+    auditoria_tipo = 'SOCIO'
+    auditoria_campos = ('rut', 'nombre', 'apellido', 'telefono', 'direccion', 'estado_socio')
     queryset = Socio.objects.select_related('usuario').all()
     serializer_class = SocioSerializer
     # Sin DELETE (405): un socio se da de baja (INACTIVO), nunca se borra.
@@ -41,6 +44,7 @@ class SocioViewSet(ModelViewSet):
             dar_de_baja_socio(socio, request.user)
         except BajaError as e:
             return Response({'detail': e.detail}, status=409)
+        registrar(request, 'SOCIO', socio.pk, 'BAJA', anterior='ACTIVO', nuevo='INACTIVO', detalle=str(socio))
         socio.refresh_from_db()
         return Response(SocioSerializer(socio).data)
 
@@ -52,6 +56,7 @@ class SocioViewSet(ModelViewSet):
             reactivar_socio(socio)
         except BajaError as e:
             return Response({'detail': e.detail}, status=409)
+        registrar(request, 'SOCIO', socio.pk, 'REACTIVADO', anterior='INACTIVO', nuevo='ACTIVO', detalle=str(socio))
         socio.refresh_from_db()
         return Response(SocioSerializer(socio).data)
 
@@ -102,8 +107,11 @@ class SocioViewSet(ModelViewSet):
             bloqueo.activo = 1
             bloqueo.save()
 
+        estado_anterior = socio.estado_socio
         socio.estado_socio = 'BLOQUEADO'
         socio.save(update_fields=['estado_socio'])
+        registrar(request, 'SOCIO', socio.pk, 'BLOQUEADO', anterior=estado_anterior, nuevo='BLOQUEADO',
+                  detalle=f'{tipo_bloqueo}: {motivo}')
         return Response({'message': f'{socio} bloqueado.', 'estado_socio': socio.estado_socio})
 
     @action(detail=True, methods=['post'])
@@ -116,8 +124,10 @@ class SocioViewSet(ModelViewSet):
         """
         socio = self.get_object()
         Bloqueo.objects.filter(socio=socio, activo=1).update(activo=0, fecha_fin=timezone.now().date())
+        estado_anterior = socio.estado_socio
         socio.estado_socio = 'ACTIVO'
         socio.save(update_fields=['estado_socio'])
+        registrar(request, 'SOCIO', socio.pk, 'DESBLOQUEADO', anterior=estado_anterior, nuevo='ACTIVO', detalle=str(socio))
         return Response({'message': f'{socio} desbloqueado.', 'estado_socio': socio.estado_socio})
 
 

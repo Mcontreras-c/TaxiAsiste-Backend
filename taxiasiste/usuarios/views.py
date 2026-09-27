@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from .confirmacion import RequiereConfirmacion, bloqueado, emitir_token, verificar_password
+from taxiasiste.reportes.auditoria import AuditaEdicion, registrar
+
 from .bajas import BajaError, dar_de_baja_usuario, reactivar_usuario
 from .emails import (
     enviar_aviso_cambio_correo, enviar_clave_temporal, enviar_credenciales_iniciales, enviar_credenciales_reenviadas,
@@ -25,7 +27,10 @@ class RolViewSet(ReadOnlyModelViewSet):
     serializer_class = RolSerializer
 
 
-class UsuarioViewSet(ModelViewSet):
+class UsuarioViewSet(AuditaEdicion, ModelViewSet):
+    auditoria_tipo = 'USUARIO'
+    auditoria_campos = ('username', 'email', 'nombre', 'apellido', 'estado')
+
     # select_related('socio'): reverse OneToOne (Socio.usuario) -- evita una
     # query aparte por fila cuando UsuarioSerializer.get_nombre_completo
     # busca el socio vinculado de cada usuario en el listado.
@@ -44,7 +49,7 @@ class UsuarioViewSet(ModelViewSet):
             return [AllowAny()]
         if self.action in self.ACCIONES_CONFIRMADAS:
             return [EsAdministrador(), RequiereConfirmacion()]
-        if self.action in ('create', 'destroy', 'crear_conductor'):
+        if self.action in ('create', 'destroy', 'crear_conductor', 'historial'):
             return [EsAdministrador()]
         return [IsAuthenticated()]
 
@@ -56,8 +61,11 @@ class UsuarioViewSet(ModelViewSet):
         seguidas bloquean el paso unos minutos.
         """
         if bloqueado(request.user):
+            registrar(request, 'USUARIO', request.user.pk, 'CONFIRMACION_BLOQUEADA',
+                      detalle='Intento de confirmar con la cuenta bloqueada por demasiados fallos')
             return Response({'detail': 'Demasiados intentos. Espera unos minutos.'}, status=429)
         if not verificar_password(request.user, request.data.get('password')):
+            registrar(request, 'USUARIO', request.user.pk, 'CONFIRMACION_FALLIDA', detalle='Contraseña incorrecta')
             return Response({'detail': 'Contraseña incorrecta.'}, status=400)
         return Response({'token': emitir_token(request.user), 'expira_en': settings.CONFIRMACION_SEGUNDOS})
 
@@ -68,6 +76,9 @@ class UsuarioViewSet(ModelViewSet):
         entrada.is_valid(raise_exception=True)
         usuario, socio, movil, clave = entrada.save()
         correo_enviado = enviar_credenciales_iniciales(usuario, clave)
+        registrar(request, 'USUARIO', usuario.pk, 'CONDUCTOR_CREADO',
+                  detalle=f'{socio.nombre} {socio.apellido} ({socio.rut}), vehículo {movil.patente}; '
+                          f'credenciales {"enviadas" if correo_enviado else "NO enviadas"} a {usuario.email}')
         from taxiasiste.moviles.serializers import MovilSerializer
         from taxiasiste.socios.serializers import SocioSerializer
         return Response({
@@ -77,6 +88,27 @@ class UsuarioViewSet(ModelViewSet):
             'correo_enviado': correo_enviado,
         }, status=201)
 
+    def perform_create(self, serializer):
+        usuario = serializer.save()
+        registrar(self.request, 'USUARIO', usuario.pk, 'CREADO',
+                  detalle=f'{usuario.username} ({usuario.rol.nombre_rol}), credenciales a {usuario.email}')
+
+    @action(detail=True, methods=['get'])
+    def historial(self, request, pk=None):
+        """Quien hizo que sobre esta persona: su cuenta, su ficha de socio y sus vehiculos. Solo Administrador."""
+        from django.db.models import Q
+        from taxiasiste.reportes.models import HistorialEvento
+        from taxiasiste.reportes.serializers import HistorialEventoSerializer
+
+        usuario = self.get_object()
+        criterio = Q(entidad_tipo='USUARIO', entidad_id=usuario.pk)
+        socio = PerfilSerializer.socio_de(usuario)
+        if socio:
+            criterio |= Q(entidad_tipo='SOCIO', entidad_id=socio.pk)
+            criterio |= Q(entidad_tipo='MOVIL', entidad_id__in=list(socio.moviles.values_list('pk', flat=True)))
+        eventos = HistorialEvento.objects.select_related('usuario').filter(criterio).order_by('-fecha_hora')[:200]
+        return Response(HistorialEventoSerializer(eventos, many=True).data)
+
     @action(detail=True, methods=['post'])
     def dar_de_baja(self, request, pk=None):
         """Deja la cuenta INACTIVA (no borra). Si es la de un conductor, da de baja al socio completo."""
@@ -85,6 +117,7 @@ class UsuarioViewSet(ModelViewSet):
             dar_de_baja_usuario(usuario, request.user)
         except BajaError as e:
             return Response({'detail': e.detail}, status=409)
+        registrar(request, 'USUARIO', usuario.pk, 'BAJA', anterior='ACTIVO', nuevo='INACTIVO', detalle=usuario.username)
         usuario.refresh_from_db()
         return Response(UsuarioSerializer(usuario).data)
 
@@ -96,6 +129,7 @@ class UsuarioViewSet(ModelViewSet):
             reactivar_usuario(usuario)
         except BajaError as e:
             return Response({'detail': e.detail}, status=409)
+        registrar(request, 'USUARIO', usuario.pk, 'REACTIVADO', anterior='INACTIVO', nuevo='ACTIVO', detalle=usuario.username)
         usuario.refresh_from_db()
         return Response(UsuarioSerializer(usuario).data)
 
@@ -176,6 +210,7 @@ class UsuarioViewSet(ModelViewSet):
         usuario = self.get_object()
         usuario.password_hash = make_password(nueva)
         usuario.save(update_fields=['password_hash'])
+        registrar(request, 'USUARIO', usuario.pk, 'CLAVE_RESETEADA', detalle=usuario.username)
         return Response({'detail': f'Contraseña de {usuario.username} actualizada correctamente.'})
 
     @action(detail=True, methods=['post'])
@@ -203,6 +238,7 @@ class UsuarioViewSet(ModelViewSet):
                 {'detail': 'No se pudo enviar el correo. La clave no se modificó.'},
                 status=502,
             )
+        registrar(request, 'USUARIO', usuario.pk, 'CREDENCIALES_REENVIADAS', detalle=f'Enviadas a {usuario.email}')
         return Response({'detail': f'Credenciales enviadas a {usuario.email}.'})
 
     @action(detail=False, methods=['post'])
