@@ -3,6 +3,7 @@ import decimal
 from django.utils import timezone
 from rest_framework import serializers
 
+from . import fila_logic
 from .models import FilaBase, Movil, UbicacionActual
 
 
@@ -79,6 +80,11 @@ class MovilSerializer(serializers.ModelSerializer):
 class FilaBaseSerializer(serializers.ModelSerializer):
     patente = serializers.CharField(source='movil.patente', read_only=True)
     socio_nombre = serializers.CharField(source='movil.socio.__str__', read_only=True)
+    # Llamado con "Voy": el servidor calcula el tiempo que queda, asi la cuenta regresiva
+    # de la app coincide con la del servidor aunque el reloj del telefono este desfasado.
+    confirmado = serializers.SerializerMethodField()
+    llamado_vence_en = serializers.SerializerMethodField()
+    segundos_restantes = serializers.SerializerMethodField()
 
     class Meta:
         model = FilaBase
@@ -92,8 +98,26 @@ class FilaBaseSerializer(serializers.ModelSerializer):
             'fecha_llamado',
             'fecha_salida',
             'estado',
+            'confirmado',
+            'confirmado_en',
+            'no_respuestas',
+            'motivo_salida',
+            'llamado_vence_en',
+            'segundos_restantes',
         ]
-        read_only_fields = ['id_fila', 'posicion', 'fecha_ingreso']
+        read_only_fields = [
+            'id_fila', 'posicion', 'fecha_ingreso', 'confirmado_en', 'no_respuestas', 'motivo_salida',
+        ]
+
+    def get_confirmado(self, obj):
+        return obj.confirmado_en is not None
+
+    def get_llamado_vence_en(self, obj):
+        vence = fila_logic.vence_llamado(obj)
+        return vence.isoformat() if vence else None
+
+    def get_segundos_restantes(self, obj):
+        return fila_logic.segundos_restantes(obj)
 
 
 class UbicacionActualSerializer(serializers.ModelSerializer):

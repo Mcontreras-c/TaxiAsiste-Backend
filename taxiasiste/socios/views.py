@@ -6,6 +6,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from taxiasiste.usuarios.bajas import BajaError, dar_de_baja_socio, reactivar_socio
+from taxiasiste.usuarios.permissions import EsAdministrador
+
 from .models import Bloqueo, Cuota, Socio, TesoreriaMovimiento
 from .serializers import BloqueoSerializer, CuotaSerializer, SocioSerializer, TesoreriaMovimientoSerializer
 
@@ -13,6 +16,38 @@ from .serializers import BloqueoSerializer, CuotaSerializer, SocioSerializer, Te
 class SocioViewSet(ModelViewSet):
     queryset = Socio.objects.select_related('usuario').all()
     serializer_class = SocioSerializer
+    # Sin DELETE (405): un socio se da de baja (INACTIVO), nunca se borra.
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
+
+    def get_permissions(self):
+        if self.action in ('dar_de_baja', 'reactivar'):
+            return [EsAdministrador()]
+        return super().get_permissions()
+
+    @action(detail=True, methods=['post'])
+    def dar_de_baja(self, request, pk=None):
+        """
+        Socio INACTIVO con fecha de egreso hoy; su cuenta y su movil quedan
+        inactivos, sale de la fila y se borra su ubicacion. El historial se conserva.
+        """
+        socio = self.get_object()
+        try:
+            dar_de_baja_socio(socio, request.user)
+        except BajaError as e:
+            return Response({'detail': e.detail}, status=409)
+        socio.refresh_from_db()
+        return Response(SocioSerializer(socio).data)
+
+    @action(detail=True, methods=['post'])
+    def reactivar(self, request, pk=None):
+        """Vuelve a dejar ACTIVO al socio, su cuenta y su movil (no lo pone de nuevo en la fila)."""
+        socio = self.get_object()
+        try:
+            reactivar_socio(socio)
+        except BajaError as e:
+            return Response({'detail': e.detail}, status=409)
+        socio.refresh_from_db()
+        return Response(SocioSerializer(socio).data)
 
     @action(detail=True, methods=['get'])
     def cuotas(self, request, pk=None):
