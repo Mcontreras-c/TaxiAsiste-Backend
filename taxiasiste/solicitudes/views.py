@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from taxiasiste.reportes.auditoria import registrar
 from taxiasiste.views import calcular_ruta, geocodificar_direccion
 
 from .models import Pasajero, Solicitud
@@ -45,6 +46,8 @@ class PasajeroViewSet(ModelViewSet):
             return Response({'detail': 'Solo un administrador puede levantar el bloqueo.'},
                             status=status.HTTP_403_FORBIDDEN)
         pasajero = self.get_object()
+        registrar(request, 'PASAJERO', pasajero.pk, 'BLOQUEO_LEVANTADO', anterior=pasajero.incumplimientos,
+                  nuevo=0, detalle=f'{pasajero.nombre} {pasajero.apellido} ({pasajero.rut})')
         pasajero.incumplimientos = 0
         pasajero.bloqueado_domicilio = 0
         pasajero.save(update_fields=['incumplimientos', 'bloqueado_domicilio'])

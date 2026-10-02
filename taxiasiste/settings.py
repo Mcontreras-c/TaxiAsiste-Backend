@@ -143,6 +143,11 @@ REST_FRAMEWORK = {
     ),
 }
 
+# Confirmacion con contrasena para acciones sensibles (ver usuarios/confirmacion.py)
+CONFIRMACION_SEGUNDOS = 120
+CONFIRMACION_MAX_INTENTOS = 5
+CONFIRMACION_BLOQUEO_SEGUNDOS = 300
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),

@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from taxiasiste.moviles.models import FilaBase, Movil, UbicacionActual
 from taxiasiste.socios.models import Bloqueo, Socio
-from taxiasiste.solicitudes.models import Solicitud
+from taxiasiste.solicitudes.models import Reserva, ReservaEvento, Solicitud
 
 from .models import Usuario
 
@@ -95,12 +95,33 @@ def dar_de_baja_socio(socio, solicitante):
     return socio
 
 
+def _liberar_reservas(moviles):
+    """
+    Las reservas ASIGNADAS a los moviles del socio vuelven a quedar disponibles
+    para que otro conductor las tome (con su rastro en RESERVA_EVENTOS). Las ya
+    terminadas no se tocan: son historial.
+    """
+    for reserva in Reserva.objects.select_for_update().filter(movil__in=moviles, estado='ASIGNADA'):
+        movil = reserva.movil
+        reserva.estado = 'PROGRAMADA'
+        reserva.movil = None
+        reserva.fecha_tomada = None
+        reserva.save(update_fields=['estado', 'movil', 'fecha_tomada'])
+        ReservaEvento.objects.create(reserva=reserva, movil=movil, tipo='LIBERADA_POR_BAJA')
+
+
 def _dar_de_baja_socio(socio):
     moviles = Movil.objects.filter(socio=socio)
 
     # Un viaje en curso quedaria sin conductor y el pasajero botado.
     if Solicitud.objects.filter(movil__in=moviles, estado__in=['ASIGNADO', 'EN_CURSO']).exists():
         raise BajaError('El socio tiene un viaje en curso. Termínalo o cancélalo antes de dar de baja.')
+
+    # Igual con una reserva EN_CAMINO: el pasajero esta esperando al conductor.
+    if Reserva.objects.filter(movil__in=moviles, estado='EN_CAMINO').exists():
+        raise BajaError('El socio tiene una reserva en camino. Termínala o quítale la reserva antes de dar de baja.')
+
+    _liberar_reservas(moviles)
 
     if socio.usuario is not None:
         _inactivar_cuenta(socio.usuario)
