@@ -228,6 +228,78 @@ def calcular_tarifa_estimada(distancia_m, duracion_s):
     return BAJADA_DE_BANDERA + max(cargo_por_distancia, cargo_por_tiempo)
 
 
+def calcular_rango_tarifa(distancia_m, duracion_s, duracion_libre_s, duracion_pesada_s=None):
+    """
+    Rango (minimo, maximo) que puede marcar el taximetro en una ruta, calculado
+    solo con las reglas del taximetro y los tiempos que da Google (sin trafico,
+    con el trafico de ahora y con trafico pesado) -- nada de porcentajes
+    inventados.
+
+    El taximetro cobra por distancia mientras el taxi va a mas de 12 km/h y por
+    tiempo cuando va mas lento, asi que lo que marca es (metros avanzados
+    rapido / 200) + (segundos yendo lento / 60) tics. De ahi salen dos limites
+    que valen para cualquier mezcla de tramos fluidos y tramos con trafico:
+
+    * Minimo: max(distancia / 200 m, tiempo / 60 s). Es el valor que ya usa
+      calcular_tarifa_estimada. Ni con el mejor reparto de tramos marca menos.
+    * Maximo: distancia / 200 m + atraso por trafico / 60 s. Es el peor reparto
+      posible: toda la ruta contada por distancia mas el atraso de trafico
+      (tiempo con trafico menos tiempo sin trafico) pasado completamente
+      detenido. El atraso que se usa es el mayor entre el de ahora y el del
+      escenario de trafico pesado de Google (duracion_pesada_s), para que el
+      techo cubra una hora punta aunque ahora haya poco trafico.
+
+    Sin ningun atraso el maximo es igual al minimo.
+    """
+    minima = calcular_tarifa_estimada(distancia_m, duracion_s)
+    peor_duracion_s = max(duracion_s, duracion_pesada_s or 0)
+    atraso_s = max(0, peor_duracion_s - duracion_libre_s)
+    tics_maximos = math.ceil(distancia_m / METROS_POR_TIC + atraso_s / SEGUNDOS_POR_TIC)
+    maxima = BAJADA_DE_BANDERA + tics_maximos * VALOR_TIC
+    # En viajes muy cortos y lentos incluso sin trafico se cobra por tiempo y el
+    # limite de arriba podria quedar bajo el minimo: el rango nunca se invierte.
+    return minima, max(minima, maxima)
+
+
+def _duraciones_trafico_pesado(origen, destino):
+    """
+    Duracion de cada ruta con trafico pesado (modelo 'pessimistic' de Google),
+    como {resumen de la ruta: segundos}. Sirve para el techo del rango de tarifa.
+    Es un dato opcional: si la consulta falla devuelve {} y el rango se calcula
+    solo con el trafico de ahora (el cotizador nunca falla por esto).
+    """
+    try:
+        resp = requests.get(
+            DIRECTIONS_URL,
+            params={
+                'origin': origen,
+                'destination': destino,
+                'mode': 'driving',
+                'alternatives': 'true',
+                'departure_time': 'now',
+                'traffic_model': 'pessimistic',
+                'region': 'cl',
+                'key': settings.GOOGLE_MAPS_API_KEY,
+            },
+            timeout=6,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        return {}
+
+    if data.get('status') != 'OK':
+        return {}
+    pesadas = {}
+    for r in data.get('routes', []):
+        leg = r['legs'][0]
+        duracion = (leg.get('duration_in_traffic') or leg['duration'])['value']
+        # Google puede reordenar o cambiar las alternativas entre consultas: se
+        # empareja por nombre de ruta y, si hay dos con el mismo, vale la primera.
+        pesadas.setdefault(r.get('summary') or 'Ruta', duracion)
+    return pesadas
+
+
 # Region Metropolitana (SW|NE): sesga la busqueda de direcciones escritas a
 # mano ("Av. Pajaritos 3000") hacia Santiago en vez de una calle homonima de
 # otra ciudad. Es solo un sesgo, no una restriccion.
@@ -371,6 +443,8 @@ def cotizar_tarifa(request):
     if data.get('status') != 'OK' or not data.get('routes'):
         return Response({'detail': 'No se encontro una ruta entre esos puntos.'}, status=status.HTTP_404_NOT_FOUND)
 
+    pesadas = _duraciones_trafico_pesado(origen_directions, f"{destino['lat']},{destino['lng']}")
+
     rutas = []
     for r in data['routes']:
         leg = r['legs'][0]
@@ -378,11 +452,22 @@ def cotizar_tarifa(request):
         # Con departure_time Google entrega la duracion con el trafico actual,
         # que es lo que va pesando el taximetro en los tics de espera.
         duracion_s = (leg.get('duration_in_traffic') or leg['duration'])['value']
+        # 'duration' es el tiempo sin trafico: la diferencia es el atraso por trafico.
+        duracion_libre_s = leg['duration']['value']
+        resumen = r.get('summary') or 'Ruta'
+        duracion_pesada_s = pesadas.get(resumen)
+        tarifa_minima, tarifa_maxima = calcular_rango_tarifa(
+            distancia_m, duracion_s, duracion_libre_s, duracion_pesada_s,
+        )
         rutas.append({
-            'resumen': r.get('summary') or 'Ruta',
+            'resumen': resumen,
             'distancia_m': distancia_m,
             'duracion_s': duracion_s,
-            'tarifa_estimada': calcular_tarifa_estimada(distancia_m, duracion_s),
+            'duracion_libre_s': duracion_libre_s,
+            'duracion_trafico_pesado_s': duracion_pesada_s,
+            'tarifa_estimada': tarifa_minima,
+            'tarifa_minima': tarifa_minima,
+            'tarifa_maxima': tarifa_maxima,
             'geometry': {
                 'type': 'LineString',
                 'coordinates': _decodificar_polyline(r['overview_polyline']['points']),
