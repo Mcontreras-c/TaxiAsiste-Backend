@@ -45,28 +45,34 @@ servidor solo escucha en `127.0.0.1` y ni el Frontend en otra red ni la app Mobi
 ## Tests
 
 ```powershell
-# Una sola vez por maquina/instancia de Oracle:
-Get-Content scripts\setup_test_schema.sql | docker exec -i oracle-xe sqlplus -s system/oracle@XEPDB1
-$env:ORACLE_USER="taxiasiste_test"; $env:ORACLE_PASSWORD="TaxiAsiste_Test_2026"
-python scripts\_run_sql_script.py scripts\create_business_schema.sql
-python scripts\_run_sql_script.py scripts\upgrade_local_schema.sql
-python scripts\_run_sql_script.py scripts\add_sesion_unica.sql
+# Una sola vez por maquina (PostgreSQL local, usuario postgres):
+psql -U postgres -h localhost -f scripts/setup_test_schema.sql
+foreach ($f in "create_business_schema_postgres","migrar_usuarios_nombre_apellido_postgres","migrar_usuarios_telefono_postgres","migrar_solicitudes_origen_latlng_postgres","migrar_reservas_postgres","migrar_fila_inactividad_llamado_postgres") {
+  psql -U postgres -h localhost -d taxiasiste_test -v ON_ERROR_STOP=1 -f "scripts/$f.sql"
+}
 $env:DJANGO_SETTINGS_MODULE="taxiasiste.settings_test"; python manage.py migrate
 
 # Cada vez que quieras correr la suite:
 pytest
 ```
 
-Los tests corren contra un esquema Oracle real y separado (`taxiasiste_test`,
-mismo contenedor Docker) en vez de contra un mock o una base sqlite — todos
-los modelos de negocio son `managed = False` (ver seccion Oracle mas abajo),
-asi que `manage.py test`/migrations no sirven para crear esas tablas por si
-solas. `pytest.ini` + `conftest.py` apuntan a este esquema directamente sin
-que Django intente crear ni destruir nada en cada corrida. El `manage.py
-migrate` de arriba SI hace falta una vez, aparte: crea las tablas propias de
-Django que si son managed=True (auth, sessions, y `token_blacklist` para el
-refresh JWT). Detalle completo en los comentarios de
+Los tests corren contra una base PostgreSQL real y separada (`taxiasiste_test`) en
+vez de contra un mock o sqlite: todos los modelos de negocio son `managed = False`
+(el esquema se arma a mano con los scripts SQL de `scripts/`), asi que
+`manage.py test`/migrations no crean esas tablas por si solas. `pytest.ini` +
+`conftest.py` apuntan a esa base directamente, sin que Django intente crear ni
+destruir nada en cada corrida. El `manage.py migrate` de arriba si hace falta una
+vez, aparte: crea las tablas propias de Django que son managed=True (auth,
+sessions y `token_blacklist` para el refresh JWT). Detalle en los comentarios de
 `taxiasiste/settings_test.py`.
+
+El orden de los scripts es el mismo que usa el CI (`.github/workflows/ci.yml`) y el
+servidor de produccion; todos los `migrar_*` son idempotentes. Los scripts sin
+sufijo `_postgres` (`create_business_schema.sql`, `upgrade_local_schema.sql`,
+`add_sesion_unica.sql`, `setup_oracle_user.sql`) son del Oracle anterior y ya no se usan.
+
+> **Nota:** el resto de este README (instalacion y seccion "Oracle") quedo de la
+> epoca de Oracle y esta desactualizado; la base actual es PostgreSQL (ver `.env`).
 
 ## Endpoints
 
