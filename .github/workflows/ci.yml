@@ -8,36 +8,34 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    # Los modelos son managed=False (esquema Oracle armado a mano, no con
-    # migrations) -- por eso los tests corren contra un Oracle real en un
-    # contenedor efimero de CI, provisionado con los mismos scripts SQL que
-    # el entorno local (ver README.md, seccion "Tests").
+    # Los modelos son managed=False (el esquema se arma a mano con los scripts
+    # SQL de scripts/, no con migrations) -- por eso los tests corren contra un
+    # PostgreSQL real en un contenedor efimero de CI, provisionado con los mismos
+    # scripts SQL que el entorno local y el servidor (ver README.md, "Tests").
     services:
-      oracle:
-        image: gvenzl/oracle-xe:21-slim
+      postgres:
+        image: postgres:14
         env:
-          ORACLE_PASSWORD: oracle
+          POSTGRES_PASSWORD: postgres
         ports:
-          - 1521:1521
+          - 5432:5432
         options: >-
-          --health-cmd healthcheck.sh
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 20
+          --health-retries 10
 
     env:
       SECRET_KEY: ci-test-secret-key
       DEBUG: 'False'
-      ORACLE_HOST: localhost
-      ORACLE_PORT: 1521
-      ORACLE_SERVICE_NAME: XEPDB1
-      # Credenciales de "app" que settings.py exige al importarse -- no se
-      # usan realmente para nada (settings_test.py las pisa con las de
-      # ORACLE_TEST_USER/PASSWORD antes de correr un test).
-      ORACLE_USER: taxiasiste_app
-      ORACLE_PASSWORD: TaxiAsiste_App_2026
-      ORACLE_TEST_USER: taxiasiste_test
-      ORACLE_TEST_PASSWORD: TaxiAsiste_Test_2026
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: taxiasiste_test
+      POSTGRES_TEST_DB: taxiasiste_test
+      # psql toma la clave de aqui (no hay .env en CI).
+      PGPASSWORD: postgres
 
     steps:
       - uses: actions/checkout@v4
@@ -45,24 +43,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
 
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
-      - name: Crear usuario Oracle de test (una vez por corrida, contenedor efimero)
-        env:
-          ORACLE_USER: system
-          ORACLE_PASSWORD: oracle
-        run: python scripts/_run_sql_script.py scripts/setup_test_schema.sql
+      - name: Crear la base de test
+        run: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f scripts/setup_test_schema.sql
 
-      - name: Crear el esquema de negocio en el usuario de test
-        env:
-          ORACLE_USER: ${{ env.ORACLE_TEST_USER }}
-          ORACLE_PASSWORD: ${{ env.ORACLE_TEST_PASSWORD }}
+      # Mismo orden con el que se arma la base en el servidor: esquema base y luego
+      # los migrar_* (todos idempotentes). Los scripts sin sufijo _postgres son del
+      # Oracle anterior y no se usan.
+      - name: Crear el esquema de negocio
         run: |
-          python scripts/_run_sql_script.py scripts/create_business_schema.sql
-          python scripts/_run_sql_script.py scripts/upgrade_local_schema.sql
-          python scripts/_run_sql_script.py scripts/add_sesion_unica.sql
+          for f in \
+            create_business_schema_postgres \
+            migrar_usuarios_nombre_apellido_postgres \
+            migrar_usuarios_telefono_postgres \
+            migrar_solicitudes_origen_latlng_postgres \
+            migrar_reservas_postgres \
+            migrar_fila_inactividad_llamado_postgres; do
+            echo "== $f"
+            psql -h localhost -U postgres -d taxiasiste_test -v ON_ERROR_STOP=1 -q -f "scripts/$f.sql"
+          done
 
       - name: Migrar tablas de Django (token_blacklist y demas apps managed=True)
         env:
@@ -70,4 +73,4 @@ jobs:
         run: python manage.py migrate --no-input
 
       - name: Correr tests
-        run: pytest
+        run: pytest -q
