@@ -14,7 +14,7 @@ class RoundingDecimalField(serializers.DecimalField):
     despues aplica 'rounding' al cuantizar — por eso el kwarg 'rounding' solo,
     nunca alcanza a evitar el error 'Ensure that there are no more than N
     decimal places' cuando el GPS entrega mas decimales de los que la columna
-    Oracle admite (comun en telefonos reales, que dan 7+ decimales).
+    la base admite (comun en telefonos reales, que dan 7+ decimales).
 
     coerce_to_string=False por defecto: DRF serializa DecimalField como
     string por default (para no perder precision en JSON), pero
@@ -122,7 +122,7 @@ class FilaBaseSerializer(serializers.ModelSerializer):
 
 class UbicacionActualSerializer(serializers.ModelSerializer):
     # El GPS de un telefono real suele entregar mas de 6 decimales; en vez de
-    # rechazar la request, se redondea al mismo formato que la columna Oracle
+    # rechazar la request, se redondea al mismo formato que la columna de la base
     # (NUMBER(10,6)) — 'rounding' hace que DecimalField cuantice en lugar de
     # lanzar 'Ensure that there are no more than N decimal places'.
     lat = RoundingDecimalField(max_digits=10, decimal_places=6)

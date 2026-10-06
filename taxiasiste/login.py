@@ -19,7 +19,7 @@ class LoginSerializer(serializers.Serializer):
 
 
 class LoginView(APIView):
-    """Login contra la tabla USUARIOS de Oracle. Devuelve access + refresh JWT."""
+    """Login contra la tabla USUARIOS. Devuelve access + refresh JWT."""
     permission_classes = [AllowAny]
 
     @extend_schema(

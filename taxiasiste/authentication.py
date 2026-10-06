@@ -3,7 +3,7 @@ from rest_framework_simplejwt.exceptions import InvalidToken
 
 
 class UsuarioJWTAuthentication(JWTAuthentication):
-    """Resuelve el token JWT a un Usuario de Oracle en lugar de auth.User."""
+    """Resuelve el token JWT a un Usuario de la base de datos en lugar de auth.User."""
 
     def get_user(self, validated_token):
         from taxiasiste.usuarios.models import Usuario
