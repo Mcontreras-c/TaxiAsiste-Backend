@@ -5,6 +5,7 @@ Django settings for taxiasiste project.
 from datetime import timedelta
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
 from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -186,6 +187,13 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://localhost:5173',
 ]
+
+# Cabeceras que el navegador puede mandar desde el panel web. X-Confirmacion lleva el permiso
+# que se obtiene al confirmar la contrasena (ver usuarios/confirmacion.py): si no esta en esta
+# lista, el navegador bloquea la peticion real tras la comprobacion previa (preflight) y las
+# acciones sensibles (editar, dar de baja, bloquear...) fallan en el panel aunque el servidor
+# las aceptaria.
+CORS_ALLOW_HEADERS = (*default_headers, 'x-confirmacion')
 
 # --- Reservas (viajes programados) ---------------------------------------
 # Todo en un solo lugar para ajustar las reglas sin tocar codigo.
