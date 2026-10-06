@@ -53,7 +53,9 @@ def _decodificar_polyline(encoded):
     return puntos
 
 
-@api_view(['GET'])
+# HEAD ademas de GET: los monitores de disponibilidad (UptimeRobot y similares)
+# consultan con HEAD, y un 405 los haria marcar el servicio como caido.
+@api_view(['GET', 'HEAD'])
 @permission_classes([AllowAny])
 def ping(request):
     return Response({
