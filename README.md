@@ -1,11 +1,11 @@
 # TaxiAsiste Backend
 
-API REST en Django 6.x con Oracle, JWT y documentacion Swagger.
+API REST en Django 6.x con PostgreSQL, JWT y documentacion Swagger.
 
 ## Requisitos
 
-- Python 3.12+ (probado con 3.14; usar Django 5.2+ o 6.x)
-- Oracle Database (local o contenedor Docker `oracle-xe`)
+- Python 3.12+
+- PostgreSQL 14+ (local o en el servidor)
 
 ## Configuracion rapida
 
@@ -19,17 +19,17 @@ pip install -r requirements.txt
 
 # 2. Variables de entorno
 copy .env.example .env
-# Editar .env: ORACLE_PORT debe coincidir con el mapeo Docker (ej. 1523)
+# Editar .env: al menos SECRET_KEY, POSTGRES_PASSWORD y GOOGLE_MAPS_API_KEY
 
-# 3. Usuario Oracle (solo la primera vez)
-Get-Content scripts\setup_oracle_user.sql | docker exec -i oracle-xe sqlplus -s system/oracle@XEPDB1
+# 3. Base de datos (una sola vez, como usuario postgres)
+psql -U postgres -h localhost -c "CREATE DATABASE taxiasiste_dev;"
 
-# 4. Esquema de negocio (instalacion nueva o parche local)
-Get-Content scripts\create_business_schema.sql | docker exec -i oracle-xe sqlplus -s taxiasiste_app/TaxiAsiste_App_2026@XEPDB1
-# Si migraste desde otro PC y solo falta FILA_BASE:
-Get-Content scripts\upgrade_local_schema.sql | docker exec -i oracle-xe sqlplus -s taxiasiste_app/TaxiAsiste_App_2026@XEPDB1
+# 4. Esquema de negocio: primero el base y luego los migrar_* (todos idempotentes)
+foreach ($f in "create_business_schema_postgres","migrar_usuarios_nombre_apellido_postgres","migrar_usuarios_telefono_postgres","migrar_solicitudes_origen_latlng_postgres","migrar_reservas_postgres","migrar_fila_inactividad_llamado_postgres") {
+  psql -U postgres -h localhost -d taxiasiste_dev -v ON_ERROR_STOP=1 -f "scripts/$f.sql"
+}
 
-# 5. Tablas internas de Django
+# 5. Tablas internas de Django (auth, sessions, token_blacklist)
 python manage.py migrate
 
 # 6. Verificar
@@ -71,8 +71,6 @@ servidor de produccion; todos los `migrar_*` son idempotentes. Los scripts sin
 sufijo `_postgres` (`create_business_schema.sql`, `upgrade_local_schema.sql`,
 `add_sesion_unica.sql`, `setup_oracle_user.sql`) son del Oracle anterior y ya no se usan.
 
-> **Nota:** el resto de este README (instalacion y seccion "Oracle") quedo de la
-> epoca de Oracle y esta desactualizado; la base actual es PostgreSQL (ver `.env`).
 
 ## Endpoints
 
@@ -83,19 +81,13 @@ sufijo `_postgres` (`create_business_schema.sql`, `upgrade_local_schema.sql`,
 | `POST /api/token/refresh/` | Renovar token |
 | `GET /api/docs/` | Swagger UI |
 
-## Oracle
+## Base de datos
 
-El proyecto soporta dos modos de conexion via `.env`:
+El motor es **PostgreSQL**. La conexion se configura con las variables `POSTGRES_*` del
+`.env` (ver `.env.example`). Todos los modelos de negocio son `managed = False`: el esquema
+se arma con los scripts SQL de `scripts/`, no con migrations de Django.
 
-- **Service name** (Docker XE): define `ORACLE_SERVICE_NAME=XEPDB1`
-- **SID clasico** (escritorio): deja `ORACLE_SERVICE_NAME` vacio y usa `ORACLE_SID=TAXIDB`
-
-Contenedor Docker usado en este equipo:
-
-```powershell
-docker run -d --name oracle-xe -p 1523:1521 -p 5500:5500 -e ORACLE_PASSWORD=oracle gvenzl/oracle-xe:21-slim
-```
-
-En este equipo el contenedor activo es `oracle-xe` y Oracle escucha en el puerto host **1523**.
-
-Credenciales por defecto del contenedor: `system/oracle` en el PDB `XEPDB1`.
+Historia: el proyecto partio sobre Oracle Database (ver el informe de la Unidad 1) y se migro a
+PostgreSQL al pasar a produccion. Los scripts sin sufijo `_postgres` (`create_business_schema.sql`,
+`upgrade_local_schema.sql`, `add_sesion_unica.sql`, `setup_oracle_user.sql`,
+`_run_sql_script.py`) son de esa epoca y ya no se usan.

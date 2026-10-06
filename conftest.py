@@ -6,7 +6,7 @@ def django_db_setup():
     """
     Reemplaza el setup por defecto de pytest-django (crear una base de test
     nueva + correr migrations) por "no hacer nada": DATABASES['default'] en
-    settings_test.py YA apunta al esquema Oracle taxiasiste_test, provisionado
+    settings_test.py YA apunta al esquema PostgreSQL taxiasiste_test, provisionado
     de antemano con el mismo SQL que taxiasiste_app (ver
     scripts/setup_test_schema.sql). No hay nada que crear ni destruir aca.
     """
