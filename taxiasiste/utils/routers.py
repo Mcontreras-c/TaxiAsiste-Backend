@@ -3,8 +3,8 @@ from rest_framework.routers import SimpleRouter
 
 class DecimalPkRouter(SimpleRouter):
     """
-    Todas las PK del proyecto son FloatField (managed=False sobre Oracle
-    NUMBER sin escala fija — ver utils/oracle_seq.py) y por lo tanto se
+    Todas las PK del proyecto son FloatField (managed=False sobre PostgreSQL
+    INTEGER mapeado a FloatField — ver utils/oracle_seq.py) y por lo tanto se
     serializan en JSON como '4.0', no '4'. El patron por defecto de DRF para
     la URL de detalle excluye el punto ('[^/.]+', pensado para poder
     distinguir la PK de un sufijo de formato como '.json'), asi que

@@ -49,7 +49,7 @@ def test_mia_requiere_movil_vinculado_al_usuario(autenticar, crear_usuario):
 @pytest.mark.django_db
 def test_mia_redondea_coordenadas_con_mas_de_6_decimales(autenticar, crear_usuario, crear_socio, crear_movil):
     """RoundingDecimalField (serializers.py): el GPS de un telefono real da
-    7+ decimales, que Oracle (NUMBER(10,6)) rechazaria sin este redondeo."""
+    7+ decimales, que la base (NUMERIC(10,6)) rechazaria sin este redondeo."""
     conductor = crear_usuario('conductorConMovil', rol_nombre='Conductor')
     socio = crear_socio('66666666-6', usuario=conductor)
     crear_movil(socio, 'CCCC33')
