@@ -38,9 +38,9 @@ cd C:\TaxiAsisteAPP\TaxiAsiste-Backend
 
 ## Respaldo de la base de datos
 ```powershell
-.env\Scripts\python.exe scripts\entorno_localespaldo_local.py            # respalda la base y los documentos en C:\TaxiAsisteAPPespaldos
-.env\Scripts\python.exe scripts\entorno_localespaldo_local.py --probar   # además restaura en una base temporal y compara los registros de las 16 tablas
-.env\Scripts\python.exe scripts\entorno_localespaldo_local.py --destino D:espaldos   # a un pendrive u otro disco
+.\venv\Scripts\python.exe scripts\entorno_local\respaldo_local.py            # respalda la base y los documentos en C:\TaxiAsisteAPP\respaldos
+.\venv\Scripts\python.exe scripts\entorno_local\respaldo_local.py --probar   # además restaura en una base temporal y compara los registros de las 16 tablas
+.\venv\Scripts\python.exe scripts\entorno_local\respaldo_local.py --destino D:\respaldos   # a un pendrive u otro disco
 ```
 Conserva 7 días y verifica cada respaldo con `pg_restore -l`. Copiar la carpeta a un pendrive o a la nube da una copia fuera del computador.
 
