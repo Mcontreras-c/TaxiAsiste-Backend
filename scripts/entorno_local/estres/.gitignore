@@ -1,0 +1,4 @@
+# salidas de la prueba de estres (se copian a ../resultados)
+*.csv
+resultados.json
+__pycache__/

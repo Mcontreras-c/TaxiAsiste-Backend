@@ -1,0 +1,3 @@
+# resultados de cada equipo (se generan al correr probar_todo.ps1 y prueba_estres.ps1)
+resultados/
+__pycache__/
