@@ -33,3 +33,19 @@ desktop.ini
 
 # Archivos subidos por usuarios (documentos de la agenda, etc.)
 media/
+
+# --- Secretos y credenciales: nunca se suben ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.p8
+*.jks
+*.keystore
+service-account*.json
+google-services.json
+GoogleService-Info.plist
+usuarios.txt
+*.dump
